@@ -1,13 +1,13 @@
+import streamlit as st
 import openai
 import re
 import json
-from config import OPENAI_API_KEY, OPENAI_MODEL
 from utils.logger import logger
-
 class AIClassifier:
     def __init__(self):
-        openai.api_key = OPENAI_API_KEY
-        self.model = OPENAI_MODEL
+       # Fetch the API key from secrets
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        self.model = st.secrets.get("OPENAI_MODEL", "gpt-3.5-turbo-1106")
 
     def extract_info(self, email_subject, email_body, resume_text):
         """Extract structured data using an AI model with specific domain classification."""
