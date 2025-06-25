@@ -1,15 +1,22 @@
 import os
-import shutil
 import tempfile
-from config import TEMP_DIR
+import logging
 
-def setup_temp_dir():
-    """Create and clean temporary directory"""
-    if os.path.exists(TEMP_DIR):
-        shutil.rmtree(TEMP_DIR)
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    return TEMP_DIR
+# Configure a basic logger for this module
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def create_temp_file(extension=".pdf"):
-    """Create a temporary file with given extension"""
-    return tempfile.mktemp(suffix=extension, dir=setup_temp_dir())
+def create_temp_file(original_filename):
+    
+    try:
+        # Extract the suffix (e.g., '.pdf') from the original filename
+        _, suffix = os.path.splitext(original_filename)
+        
+        file_descriptor, path = tempfile.mkstemp(suffix=suffix)
+        
+        os.close(file_descriptor)
+        
+        logging.info(f"Created temporary file at: {path}")
+        return path
+    except Exception as e:
+        logging.error(f"Failed to create temporary file for {original_filename}: {e}", exc_info=True)
+        return None
