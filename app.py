@@ -5,6 +5,7 @@ import json
 import uuid
 import re
 import asyncio
+import requests
 from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -72,6 +73,22 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 
 def run_app():
+    def logout():
+        if 'credentials' in st.session_state:
+            try:
+                # Revoke the token on Google's side
+                requests.post('https://oauth2.googleapis.com/revoke',
+                    params={'token': st.session_state.credentials.token},
+                    headers={'content-type': 'application/x-www-form-urlencoded'})
+            except Exception as e:
+                st.error(f"Failed to revoke token: {e}")
+
+        # Clear all items from the session state
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        
+        # Rerun to force a reload to the login page
+        st.rerun()
     
     credentials = st.session_state.credentials
 
@@ -209,9 +226,8 @@ def run_app():
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}", icon="🚨")
                 
-        if st.button("Logout", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
+        if st.button("Logout", use_container_width=True, on_click=logout):
+            pass
         st.divider()
 
         st.header("📋 Controls & Filters")
@@ -446,39 +462,57 @@ def run_app():
                 if st.form_submit_button("Add Interviewer", use_container_width=True):
                     if name and email and db_handler.add_interviewer(name, email): st.success("Interviewer added."); st.cache_data.clear(); st.rerun()
                     else: st.warning("Please provide name and a unique email.")
+        st.subheader("🔴 Danger Zone")
+        with st.expander("Reset Application Data"):
+            st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
+            
+            # Use a state variable to control the confirmation flow
+            if 'confirm_delete_db' not in st.session_state:
+                st.session_state.confirm_delete_db = False
 
+            if st.button("Initiate Database Reset", type="primary"):
+                st.session_state.confirm_delete_db = True
+            
+            if st.session_state.confirm_delete_db:
+                st.write("To confirm, please type **DELETE ALL DATA** in the box below.")
+                confirmation_text = st.text_input("Confirmation Phrase", placeholder="DELETE ALL DATA")
+                
+                # The final delete button is disabled until the user types the exact phrase
+                if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
+                    with st.spinner("Deleting all data and resetting tables..."):
+                        if db_handler.clear_all_tables():
+                            st.success("Database cleared successfully.")
+                            # Re-create the tables so the app doesn't break
+                            db_handler.create_tables()
+                            st.info("Application tables have been reset.")
+                            st.session_state.confirm_delete_db = False
+                            # Clear all caches and rerun to show the empty state
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            st.rerun()
+                        else:
+                            st.error("An error occurred while clearing the database.")
+
+
+# --- Authentication Flow ---
 if 'credentials' not in st.session_state:
-    # Handle the case where the user is not logged in yet.
-    # Check if we have the authorization code in the URL query params.
     if 'code' in st.query_params:
         try:
             flow = create_flow()
-            # Exchange the code for a token (credentials)
             flow.fetch_token(code=st.query_params['code'])
-            
-            # Store credentials in session state
             st.session_state.credentials = flow.credentials
-            
-            # Get user info and store it
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
-            
-            # Rerun the script to now enter the main app
             st.rerun()
-            
         except Exception as e:
             st.error(f"Error during authentication: {e}")
             st.stop()
     else:
-        # If no credentials and no code, show the login page.
         flow = create_flow()
-        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-        
+        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS Automation System")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # If credentials ARE in the session state, the user is logged in.
-    # Run the main application.
-    run_app()      
+    run_app()   
