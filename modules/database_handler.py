@@ -1,16 +1,19 @@
 import psycopg2
 import pandas as pd
 from utils.logger import logger
-from config import DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
 
 class DatabaseHandler:
     def __init__(self):
+        """
+        Initializes the database connection parameters by fetching them
+        from Streamlit's secrets manager.
+        """
         self.conn_params = {
-            "dbname": DB_NAME,
-            "user": DB_USER,
-            "password": DB_PASSWORD,
-            "host": DB_HOST,
-            "port": DB_PORT
+            "dbname": st.secrets["DB_NAME"],
+            "user": st.secrets["DB_USER"],
+            "password": st.secrets["DB_PASSWORD"],
+            "host": st.secrets["DB_HOST"],
+            "port": st.secrets["DB_PORT"]
         }
         self.conn = None
 
