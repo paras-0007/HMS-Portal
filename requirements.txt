@@ -1,0 +1,12 @@
+streamlit
+pandas
+psycopg2-binary
+openai
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+pdfplumber
+python-docx
+streamlit-quill
+streamlit-google-oauth
+python-dotenv
