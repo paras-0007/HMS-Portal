@@ -8,5 +8,4 @@ google-auth-httplib2
 pdfplumber
 python-docx
 streamlit-quill
-streamlit-google-oauth
 python-dotenv
