@@ -1,6 +1,7 @@
 import psycopg2
 import pandas as pd
 from utils.logger import logger
+import streamlit as st
 
 class DatabaseHandler:
     def __init__(self):
