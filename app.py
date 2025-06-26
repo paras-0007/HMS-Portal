@@ -187,7 +187,7 @@ def run_app():
         if "Rejected" in stage_names:
             stage_names.remove("Rejected")
             stage_names.append("Rejected")
-
+    
         current_stage_index = (
             stage_names.index(current_status) if current_status in stage_names else -1
         )
@@ -195,7 +195,6 @@ def run_app():
         column_widths = [
             3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)
         ]
-        
         cols = st.columns(column_widths)
     
         for i, stage_name in enumerate(stage_names):
@@ -218,7 +217,6 @@ def run_app():
                     f"{timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b %I:%M %p')}"
                     f"</p>"
                 )
-             
                 st.markdown(
                     f"""
                     <div style='text-align: center; padding: 5px; border-radius: 10px;
@@ -323,7 +321,7 @@ def run_app():
                     st.rerun()
 
         with st.expander("📥 Import Applicants"):
-            import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
+            import_option = st.selectbox("Choose import method:", ["Local file (CSV/Excel)", "Google Sheet link", "Single resume URL", "Single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
                 sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
@@ -401,7 +399,7 @@ def run_app():
             
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox(label=f"Select {row['Name']}", value=st.session_state.get(f"select_{row['Id']}", False))
+                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
                 row_cols[2].text(row['Role'])
@@ -629,6 +627,7 @@ def run_app():
                             st.rerun()
                         else:
                             st.error("An error occurred while clearing the database.")
+
 
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
