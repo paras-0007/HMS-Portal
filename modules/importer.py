@@ -9,180 +9,156 @@ import uuid
 from modules.database_handler import DatabaseHandler
 from modules.ai_classifier import AIClassifier
 from modules.pdf_processor import FileProcessor
-from modules.drive_handler import DriveHandler  # Re-used for uploading extracted resumes
+from modules.drive_handler import DriveHandler
 from utils.logger import logger
 
 class Importer:
-    """
-    Handles various methods of importing applicant data into the system.
-    """
     def __init__(self, credentials):
+        self.credentials = credentials
         self.db_handler = DatabaseHandler()
         self.ai_classifier = AIClassifier()
         self.file_processor = FileProcessor()
         self.drive_handler = DriveHandler(credentials)
 
     def _get_gdrive_download_url(self, url):
-        """
-        Converts a standard Google Drive file viewer URL to a direct download URL.
-        """
         match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
         if match:
-            file_id = match.group(1)
-            return f'https://drive.google.com/uc?export=download&id={file_id}'
-        return url # Return original URL if it's not a recognizable GDrive link
+            return f'https://drive.google.com/uc?export=download&id={match.group(1)}'
+        return url
 
     def _download_file(self, url):
-        """
-        Downloads a file from a URL, handling Google Drive links, and saves it to a temporary path.
-        Returns the path to the downloaded file or None on failure.
-        """
         try:
             download_url = self._get_gdrive_download_url(url)
-            
-            # Use a session for the request
             session = requests.Session()
             response = session.get(download_url, stream=True)
             response.raise_for_status()
-
-            # Determine filename from Content-Disposition header
+            
             content_disposition = response.headers.get('content-disposition')
-            filename = None
+            filename = f"{uuid.uuid4()}.tmp" # Default filename
             if content_disposition:
                 filenames = re.findall('filename="(.+)"', content_disposition)
-                if filenames:
-                    filename = filenames[0]
-            
-            # If no filename in header, generate a random one and infer extension
-            if not filename:
-                content_type = response.headers.get('content-type', '')
-                ext = '.tmp'
-                if 'pdf' in content_type:
-                    ext = '.pdf'
-                elif 'word' in content_type or 'openxmlformats-officedocument' in content_type:
-                    ext = '.docx'
-                filename = f"{uuid.uuid4()}{ext}"
+                if filenames: filename = filenames[0]
 
-            # Sanitize filename and create temp path
-            safe_filename = os.path.basename(filename).replace(" ", "_")
-            temp_file_path = f"/tmp/{safe_filename}"
-            
-            # Write the file content
+            temp_file_path = f"/tmp/{os.path.basename(filename).replace(' ', '_')}"
             with open(temp_file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
+                for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
             logger.info(f"Successfully downloaded file to {temp_file_path}")
             return temp_file_path
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to download file from URL {url}: {e}", exc_info=True)
-            return None
         except Exception as e:
-            logger.error(f"An unexpected error occurred during file download from {url}: {e}", exc_info=True)
+            logger.error(f"Failed to download file from {url}: {e}", exc_info=True)
             return None
 
+    def _normalize_columns(self, df):
+        """Normalizes dataframe columns to a consistent format."""
+        cols = {col: col.strip().lower().replace(' ', '_').replace('-', '_') for col in df.columns}
+        df = df.rename(columns=cols)
+        
+        # Define potential aliases for our target fields
+        rename_map = {
+            'cv_url': ['cv_url', 'cvurl', 'cv_link', 'resume_url', 'resume_link'],
+            'job_history': ['job_history', 'jobhistory', 'work_experience'],
+            'name': ['name', 'full_name'],
+            'email': ['email', 'email_address'],
+            'phone': ['phone', 'phone_number', 'mobile']
+        }
+
+        # Reverse map for finding the right column in the df
+        final_cols = {}
+        for target, aliases in rename_map.items():
+            for alias in aliases:
+                if alias in df.columns:
+                    final_cols[alias] = target
+                    break # Found the first matching alias
+        
+        df = df.rename(columns=final_cols)
+        return df
+
     def import_from_local_file(self, uploaded_file):
-        """
-        Imports applicants from a local CSV or Excel file.
-        """
         try:
             if uploaded_file.name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file)
             elif uploaded_file.name.endswith(('.xls', '.xlsx')):
-                df = pd.read_excel(uploaded_file)
+                df = pd.read_excel(uploaded_file, engine='openpyxl')
             else:
-                raise ValueError("Unsupported file format. Please use CSV or Excel.")
-
-            return self._process_dataframe(df)
-
+                return "Unsupported file format. Please use CSV or Excel.", 0
+            
+            inserted, skipped = self._process_dataframe(df)
+            return f"Import complete! Added: {inserted}, Skipped due to duplicates or errors: {skipped}.", inserted
         except Exception as e:
             logger.error(f"Failed to import from local file: {e}", exc_info=True)
-            return 0, 0
+            return f"An error occurred: {e}", 0
 
     def import_from_resume(self, resume_url):
-        """
-        Imports a single applicant from a resume URL.
-        """
         temp_file_path = self._download_file(resume_url)
-        if not temp_file_path:
-            return None
-        
+        if not temp_file_path: return None
         try:
-            # Process the downloaded resume
             resume_text = self.file_processor.extract_text(temp_file_path)
             if not resume_text:
                 logger.error(f"Could not extract text from resume at {resume_url}")
                 return None
-
-            # Use AI to extract information
+            
             ai_data = self.ai_classifier.extract_info("", "", resume_text)
-
-            # Upload the resume to our Google Drive to get a persistent, shareable link
             drive_url = self.drive_handler.upload_to_drive(temp_file_path)
 
-            # Prepare applicant data for insertion
             applicant_data = {
-                'Name': ai_data.get('Name'),
-                'Email': ai_data.get('Email'),
-                'Phone': ai_data.get('Phone'),
-                'Education': ai_data.get('Education'),
-                'JobHistory': ai_data.get('JobHistory'),
-                'Domain': ai_data.get('Domain', 'Other'),
-                'CV_URL': drive_url,
-                'Status': 'New'
+                'Name': ai_data.get('Name'), 'Email': ai_data.get('Email'),
+                'Phone': ai_data.get('Phone'), 'Education': ai_data.get('Education'),
+                'JobHistory': ai_data.get('JobHistory'), 'Domain': ai_data.get('Domain', 'Other'),
+                'CV_URL': drive_url, 'Status': 'New'
             }
-            
-            # Insert into database (assuming no initial communication)
             return self.db_handler.insert_applicant_and_communication(applicant_data, {})
-
-        except Exception as e:
-            logger.error(f"Failed to process resume from URL {resume_url}: {e}", exc_info=True)
-            return None
         finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
+            if os.path.exists(temp_file_path): os.remove(temp_file_path)
 
     def _process_dataframe(self, df):
-        """
-        Processes a DataFrame of applicants, enriching data where necessary from resume links.
-        """
-        inserted_count = 0
-        skipped_count = 0
+        df = self._normalize_columns(df)
+        inserted_count, skipped_count = 0, 0
 
         for _, row in df.iterrows():
             applicant_data = row.to_dict()
             temp_file_path = None
-
-            # If essential data is missing but a resume link exists, try to fill the gaps
-            is_missing_data = pd.isna(row.get('Name')) or pd.isna(row.get('Email'))
-            has_resume_link = 'resume_link' in row and pd.notna(row['resume_link'])
-
-            if is_missing_data and has_resume_link:
-                temp_file_path = self._download_file(row['resume_link'])
-                if temp_file_path:
-                    try:
+            
+            try:
+                # If job history is missing but a resume link exists, enrich the data
+                if pd.isna(row.get('job_history')) and 'cv_url' in df.columns and pd.notna(row.get('cv_url')):
+                    temp_file_path = self._download_file(row['cv_url'])
+                    if temp_file_path:
+                        # Upload our own copy to Drive for persistence
+                        drive_url = self.drive_handler.upload_to_drive(temp_file_path)
+                        applicant_data['CV_URL'] = drive_url
+                        
+                        # Extract text and get data from AI
                         resume_text = self.file_processor.extract_text(temp_file_path)
                         ai_data = self.ai_classifier.extract_info("", "", resume_text)
-
-                        # Fill in missing data from AI extraction
+                        
+                        # Fill in any missing data from the AI results
                         for key, value in ai_data.items():
-                            # Only fill if the original data was empty
-                            if key in applicant_data and pd.isna(applicant_data[key]):
-                                applicant_data[key] = value
-                    
-                    except Exception as e:
-                        logger.error(f"Could not process resume link {row['resume_link']} for enrichment: {e}", exc_info=True)
+                            db_key = key.lower()
+                            if db_key in ['name', 'phone', 'education', 'jobhistory']: # Remap AI keys to DB style
+                                db_key = 'job_history' if db_key == 'jobhistory' else db_key
+                                applicant_data[db_key.title()] = applicant_data.get(db_key.title()) or value
 
-            # Insert into database
-            if self.db_handler.insert_applicant_and_communication(applicant_data, {}):
-                inserted_count += 1
-            else:
-                skipped_count += 1
+                # Standardize keys for the database insert function
+                db_insert_data = {
+                    "Name": applicant_data.get('name'),
+                    "Email": applicant_data.get('email'),
+                    "Phone": applicant_data.get('phone'),
+                    "Domain": applicant_data.get('domain', 'Other'),
+                    "Education": applicant_data.get('education'),
+                    "JobHistory": applicant_data.get('job_history'),
+                    "CV_URL": applicant_data.get('cv_url'),
+                }
+                
+                if self.db_handler.insert_applicant_and_communication(db_insert_data, {}):
+                    inserted_count += 1
+                else:
+                    skipped_count += 1
             
-            # Clean up the temporary file if it was downloaded
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+            except Exception as e:
+                logger.error(f"Error processing row for {row.get('email', 'N/A')}: {e}", exc_info=True)
+                skipped_count += 1
+            finally:
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
         
         return inserted_count, skipped_count
