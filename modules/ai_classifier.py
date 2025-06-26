@@ -3,6 +3,7 @@ import openai
 import re
 import json
 from utils.logger import logger
+
 class AIClassifier:
     def __init__(self):
        # Fetch the API key from secrets
@@ -33,6 +34,7 @@ class AIClassifier:
                         "content": (
                             "You are a hyper-precise HR data extraction engine. From the provided text, extract a valid JSON object with the exact following keys:\n"
                             "- 'Name': Full name of the applicant.\n"
+                            "- 'Email': The email address of the applicant.\n"
                             "- 'Phone': The 10-digit mobile number as a plain string of digits.\n"
                             "- 'Education': A single-string summary of their education background.\n"
                             "- 'JobHistory': Create a markdown-formatted bulleted list. Each bullet point, starting with a hyphen (-), should represent a single job, including the Job Title, Company, and a 1-sentence summary of responsibilities.\n"
