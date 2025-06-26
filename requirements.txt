@@ -10,3 +10,4 @@ python-docx
 streamlit-quill
 python-dotenv
 requests
+openpyxl
