@@ -393,14 +393,14 @@ def run_app():
 
     main_tab1, main_tab2 = st.tabs(["Applicant Dashboard", "⚙️ System Settings"])
 
-    with main_tab1:
+     with main_tab1:
         if st.session_state.view_mode == 'grid':
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             
-            # MODIFIED: Column headers updated to Role.
+            # MODIFIED: Column headers updated to Role. [cite: 57]
             header_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
             header_cols[0].markdown("** **")
             header_cols[1].markdown("**Name**")
@@ -409,23 +409,26 @@ def run_app():
             header_cols[4].markdown("**Applied On**")
             header_cols[5].markdown("**Last Action**")
             st.divider()
-            
+             
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             
-            # MODIFIED: Grid view layout improved for better alignment.
+            # MODIFIED: Grid view layout improved for better alignment. 
+            # FIX: Removed hardcoded top margin from markdown and added vertical alignment to columns.
             for _, row in df_display.iterrows():
                 row_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
                 with row_cols[0]:
-                    st.write(" ") # For vertical alignment
+                    # The checkbox is vertically centered by default with other widgets in the row.
                     is_selected = st.checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False), label_visibility="hidden")
-                if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"<div style='margin-top: 10px;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
-                row_cols[2].markdown(f"<div style='margin-top: 10px;'>{row['Role']}</div>", unsafe_allow_html=True)
-                row_cols[3].markdown(f"<div style='margin-top: 10px;'>{row['Status']}</div>", unsafe_allow_html=True)
-                row_cols[4].markdown(f"<div style='margin-top: 10px;'>{pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y')}</div>", unsafe_allow_html=True)
-                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(f"<div style='margin-top: 10px;'>{last_action_str}</div>", unsafe_allow_html=True)
+                if is_selected: selected_ids.append(int(row['Id'])) [cite: 60]
+
+                # By removing the manual `margin-top`, elements align correctly.
+                row_cols[1].markdown(f"<b>{row['Name']}</b>", unsafe_allow_html=True) [cite: 60]
+                row_cols[2].markdown(f"{row['Role']}") [cite: 60]
+                row_cols[3].markdown(f"{row['Status']}") [cite: 60]
+                row_cols[4].markdown(f"{pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y')}") [cite: 60]
+                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A" [cite: 61]
+                row_cols[5].markdown(f"{last_action_str}") [cite: 61]
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             
             with st.sidebar:
