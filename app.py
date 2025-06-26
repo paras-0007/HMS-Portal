@@ -18,6 +18,7 @@ from modules.email_handler import EmailHandler
 from modules.calendar_handler import CalendarHandler
 from modules.sheet_updater import SheetsUpdater
 from processing_engine import ProcessingEngine # The new processing logic
+from modules.importer import Importer # Import the new Importer class
 from streamlit_quill import st_quill
 
 # --- Page Configuration ---
@@ -98,11 +99,13 @@ def run_app():
     def get_email_handler(creds): return EmailHandler(creds)
     def get_sheets_updater(creds): return SheetsUpdater(creds)
     def get_calendar_handler(creds): return CalendarHandler(creds)
+    def get_importer(creds): return Importer(creds) # New Importer instance
 
     db_handler = get_db_handler()
     email_handler = get_email_handler(credentials)
     sheets_updater = get_sheets_updater(credentials)
     calendar_handler = get_calendar_handler(credentials)
+    importer = get_importer(credentials) # New Importer instance
 
     # --- Data Loading & Caching Functions ---
     @st.cache_data(ttl=300)
@@ -261,17 +264,49 @@ def run_app():
                     db_handler.delete_export_log(log['id'])
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
-            st.subheader("Import from Sheet")
-            sheet_url = st.text_input("Paste Google Sheet URL")
-            if st.button("Import Applicants"):
-                if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
-                    with st.spinner("Reading & Importing..."):
-                        data = sheets_updater.read_sheet_data(sid.group(1))
-                        if isinstance(data, pd.DataFrame) and not data.empty:
-                            inserted, skipped = db_handler.insert_bulk_applicants(data)
-                            st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
-                        else: st.error("Could not read data from sheet.")
-                else: st.warning("Please provide a valid Google Sheet URL.")
+
+            st.subheader("Import Applicants")
+            
+            # New Import Options
+            import_option = st.selectbox("Choose import method:", ["From Google Sheet", "From local file (CSV/Excel)", "From resume link"])
+
+            if import_option == "From Google Sheet":
+                sheet_url = st.text_input("Paste Google Sheet URL")
+                if st.button("Import from Sheet"):
+                    if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
+                        with st.spinner("Reading & Importing..."):
+                            data = sheets_updater.read_sheet_data(sid.group(1))
+                            if isinstance(data, pd.DataFrame) and not data.empty:
+                                inserted, skipped = db_handler.insert_bulk_applicants(data)
+                                st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
+                            else: st.error("Could not read data from sheet.")
+                    else: st.warning("Please provide a valid Google Sheet URL.")
+            
+            elif import_option == "From local file (CSV/Excel)":
+                uploaded_file = st.file_uploader("Choose a CSV or Excel file", type=["csv", "xls", "xlsx"])
+                if uploaded_file is not None:
+                    if st.button("Import from File"):
+                        with st.spinner("Processing file and importing..."):
+                            inserted, skipped = importer.import_from_local_file(uploaded_file)
+                            st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}.")
+                            st.cache_data.clear()
+                            st.rerun()
+
+            elif import_option == "From resume link":
+                resume_link = st.text_input("Paste resume URL")
+                if st.button("Import from Resume"):
+                    if resume_link:
+                        with st.spinner("Analyzing resume and creating profile..."):
+                            applicant_id = importer.import_from_resume(resume_link)
+                            if applicant_id:
+                                st.success(f"Successfully imported applicant. New ID: {applicant_id}")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error("Failed to import from resume link.")
+                    else:
+                        st.warning("Please provide a resume URL.")
+
 
     # --- Main Page UI ---
     st.title("HR Applicant Dashboard")
@@ -515,4 +550,4 @@ if 'credentials' not in st.session_state:
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    run_app()   
+    run_app()
