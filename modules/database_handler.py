@@ -99,6 +99,22 @@ class DatabaseHandler:
             return
         self._populate_initial_statuses()
 
+    def update_applicant_thread_id(self, applicant_id, thread_id):
+        """Updates the gmail_thread_id for a given applicant."""
+        self._connect()
+        if not self.conn: return False
+        sql = "UPDATE applicants SET gmail_thread_id = %s WHERE id = %s;"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (thread_id, applicant_id))
+                self.conn.commit()
+                logger.info(f"Updated gmail_thread_id for applicant {applicant_id}.")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating thread_id for applicant {applicant_id}: {e}", exc_info=True)
+            self.conn.rollback()
+            return False
+
     def insert_applicant_and_communication(self, applicant_data, email_data):
         self._connect()
         if not self.conn: return None
@@ -128,10 +144,8 @@ class DatabaseHandler:
                 ))
                 applicant_id = cur.fetchone()[0]
 
-                # Log the initial 'New' status
                 cur.execute(log_status_sql, (applicant_id, 'New'))
 
-                # Only insert communication if it's a real email (has an id)
                 if email_data and email_data.get('id'):
                     cur.execute(insert_comm_sql, (
                         applicant_id, email_data.get("id"), email_data.get("sender"),
@@ -200,7 +214,6 @@ class DatabaseHandler:
         self._connect()
         if not self.conn: return pd.DataFrame()
         
-        # This query uses COALESCE to show the creation date if no other action exists
         query = """
         SELECT 
             a.id, a.name, a.email, a.phone, a.domain, a.job_history, 
@@ -228,7 +241,6 @@ class DatabaseHandler:
             return df
         except Exception as e:
             logger.error(f"Error fetching applicants with last action date: {e}")
-            # Fallback to a simpler query if the advanced one fails
             try:
                 simple_query = "SELECT *, created_at as last_action_date FROM applicants ORDER BY created_at DESC;"
                 df = pd.read_sql_query(simple_query, self.conn)
@@ -240,11 +252,8 @@ class DatabaseHandler:
                 return pd.DataFrame()
 
     def insert_bulk_applicants(self, applicants_df):
-        # This function is now a simple wrapper. The core logic is in the Importer module.
         from modules.importer import Importer
-        # This is a bit of a hack to avoid circular imports, but for this structure it's okay.
-        # A better solution would be a more formal dependency injection pattern.
-        importer = Importer(None) # Credentials are not needed for this specific path
+        importer = Importer(None)
         return importer._process_dataframe(applicants_df)
     
     def log_interview(self, applicant_id, interviewer_id, title, start_time, end_time, event_id):
@@ -348,7 +357,7 @@ class DatabaseHandler:
     def get_active_threads(self):
         self._connect();
         if not self.conn: return []
-        query = "SELECT id, gmail_thread_id FROM applicants WHERE status NOT IN ('Rejected', 'Hired');"
+        query = "SELECT id, gmail_thread_id FROM applicants WHERE status NOT IN ('Rejected', 'Hired') AND gmail_thread_id IS NOT NULL;"
         try:
             with self.conn.cursor() as cur: cur.execute(query); return cur.fetchall() 
         except Exception as e: logger.error(f"Error fetching active threads: {e}"); return []
@@ -372,44 +381,3 @@ class DatabaseHandler:
         query = "SELECT id, file_name, sheet_url, created_at FROM export_logs ORDER BY created_at DESC LIMIT 5;"
         try: return pd.read_sql_query(query, self.conn)
         except Exception as e: logger.error(f"Error fetching export logs: {e}"); return pd.DataFrame()
-    
-    
-    def update_applicant_status(self, applicant_id, new_status):
-        """
-        Updates an applicant's status only if the new status is different from the current one.
-        Logs the change in the status history table.
-        """
-        self._connect()
-        if not self.conn: return False
-
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute("SELECT status FROM applicants WHERE id = %s;", (applicant_id,))
-                result = cur.fetchone()
-                if not result:
-                    logger.warning(f"Attempted to update status for non-existent applicant ID: {applicant_id}")
-                    return False
-                
-                current_status = result[0]
-
-                # Only proceed if the status has actually changed
-                if current_status == new_status:
-                    logger.info(f"Status for applicant {applicant_id} is already '{new_status}'. No update performed.")
-                    return True  
-
-                # If status is different, perform the update and log it
-                update_sql = "UPDATE applicants SET status = %s WHERE id = %s;"
-                log_sql = "INSERT INTO applicant_status_history (applicant_id, status_name) VALUES (%s, %s);"
-                
-                cur.execute(update_sql, (new_status, applicant_id))
-                cur.execute(log_sql, (applicant_id, new_status))
-                
-                self.conn.commit()
-                logger.info(f"Updated status for applicant {applicant_id} from '{current_status}' to '{new_status}' and logged history.")
-                return True
-
-        except Exception as e:
-            logger.error(f"Error updating status for applicant {applicant_id}: {e}", exc_info=True)
-            self.conn.rollback()
-            return False
-
