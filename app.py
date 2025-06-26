@@ -187,7 +187,7 @@ def run_app():
         if "Rejected" in stage_names:
             stage_names.remove("Rejected")
             stage_names.append("Rejected")
-    
+
         current_stage_index = (
             stage_names.index(current_status) if current_status in stage_names else -1
         )
@@ -195,6 +195,7 @@ def run_app():
         column_widths = [
             3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)
         ]
+        
         cols = st.columns(column_widths)
     
         for i, stage_name in enumerate(stage_names):
@@ -217,6 +218,7 @@ def run_app():
                     f"{timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b %I:%M %p')}"
                     f"</p>"
                 )
+             
                 st.markdown(
                     f"""
                     <div style='text-align: center; padding: 5px; border-radius: 10px;
@@ -321,7 +323,7 @@ def run_app():
                     st.rerun()
 
         with st.expander("📥 Import Applicants"):
-            import_option = st.selectbox("Choose import method:", ["Local file (CSV/Excel)", "Google Sheet link", "Single resume URL", "Single resume file (PDF/DOCX)"])
+            import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
                 sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
@@ -631,23 +633,38 @@ def run_app():
 
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
+    # Check if we are in the middle of an OAuth flow
     if 'code' in st.query_params:
         try:
+            # Grab the authorization code from the URL
+            auth_code = st.query_params['code']
+            
+            # Important: Clear the query params from the URL.
+            # This prevents the "invalid_grant" error on page refresh.
+            st.query_params.clear()
+
+            # Exchange the code for credentials
             flow = create_flow()
-            flow.fetch_token(code=st.query_params['code'])
+            flow.fetch_token(code=auth_code)
+
+            # Store credentials and user info in the session state
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
+
+            # Rerun the app to enter the main application logic
             st.rerun()
         except Exception as e:
             st.error(f"Error during authentication: {e}")
             st.stop()
     else:
+        # Show the login page
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
+    # If credentials already exist, run the main app
     run_app()
