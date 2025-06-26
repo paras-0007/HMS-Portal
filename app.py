@@ -630,31 +630,42 @@ def run_app():
                         else:
                             st.error("An error occurred while clearing the database.")
 
-
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
-    # Check if we are in the middle of an OAuth flow
     if 'code' in st.query_params:
         try:
-            # Grab the authorization code from the URL
-            auth_code = st.query_params['code']
-            
-            # Important: Clear the query params from the URL.
-            # This prevents the "invalid_grant" error on page refresh.
-            st.query_params.clear()
-
             # Exchange the code for credentials
             flow = create_flow()
-            flow.fetch_token(code=auth_code)
+            flow.fetch_token(code=st.query_params['code'])
 
-            # Store credentials and user info in the session state
+            # Store credentials and user info
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
 
-            # Rerun the app to enter the main application logic
-            st.rerun()
+            # Determine the redirect URI to clean the URL
+            try:
+                # This check helps determine if we are in local dev or deployed
+                with open('credentials.json') as f:
+                    pass # File exists, so we are local
+                redirect_uri = "http://localhost:8501"
+            except FileNotFoundError:
+                # File does not exist, so we are deployed
+                redirect_uri = st.secrets["REDIRECT_URI"]
+
+            # Perform a client-side redirect to the clean URL
+            st.components.v1.html(
+                f"""
+                <script>
+                    window.location.href = "{redirect_uri}";
+                </script>
+                """,
+                height=0
+            )
+            # Stop the script to ensure the redirect happens
+            st.stop()
+
         except Exception as e:
             st.error(f"Error during authentication: {e}")
             st.stop()
