@@ -37,7 +37,7 @@ class AIClassifier:
                             "- 'Email': The email address of the applicant.\n"
                             "- 'Phone': The 10-digit mobile number, extracted as a plain string of digits. If a country code (like +91 or 91) is present, it must be removed. The final output for this key must be exactly 10 digits.\n"
                             "- 'Education': A single-string summary of their education background.\n"
-                            "- 'JobHistory': Create a markdown-formatted bulleted list. Each bullet point, starting with a hyphen (-), should represent a single job, including the Job Title, Company, duration, and a 1-sentence summary of responsibilities.\n"
+                            "- 'JobHistory': A concise, professional summary of the candidate's entire work experience in a single paragraph of 2-4 sentences, highlighting key roles and accomplishments. Do not use markdown or bullet points.\n"
                             f"- 'Domain': Analyze the entire text and classify the candidate's primary role into ONE of the following: {', '.join(company_roles)}. Base your decision on their most recent and significant experience. If no role is a clear match, use 'Other'."
                         )
                     },
