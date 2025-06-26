@@ -22,7 +22,7 @@ from modules.importer import Importer
 from streamlit_quill import st_quill
 
 # --- Page Configuration ---
-st.set_page_config(page_title="Hiring Management System", page_icon="📑", layout="wide")
+st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
 
 # --- Authentication Setup ---
 def create_flow():
@@ -316,7 +316,7 @@ def run_app():
 
 
     # --- Main Page UI ---
-    st.title("HR Applicant Dashboard")
+    st.title("Hiring Management System")
     df_all = load_all_applicants()
     st.markdown(f"### Displaying Applicants: {len(df_all)}")
     status_list = load_statuses()
