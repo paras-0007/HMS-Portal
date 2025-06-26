@@ -652,21 +652,17 @@ if 'credentials' not in st.session_state:
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
 
-            # Use a JavaScript redirect to clear the URL parameters.
-            # This is the most reliable method for deployed apps in iframes.
-            # It redirects the entire browser window (window.top) to the clean URL.
-            try:
-                with open('credentials.json'):
-                    redirect_uri = "http://localhost:8501"
-            except FileNotFoundError:
-                redirect_uri = st.secrets["REDIRECT_URI"]
+            # Clear the query parameters from the URL
+            st.query_params.clear()
+            
+            # Rerun the script immediately to enter the main app logic
+            st.rerun()
 
-            st.components.v1.html(
-                f'<script>window.top.location.href = "{redirect_uri}";</script>',
-                height=0
-            )
         except Exception as e:
             st.error(f"Error during authentication: {e}")
+            # Also helpful to log the full error for debugging
+            # from utils.logger import logger
+            # logger.error(f"Authentication failed: {e}", exc_info=True)
     else:
         # Show the login page if no code is in the URL.
         flow = create_flow()
