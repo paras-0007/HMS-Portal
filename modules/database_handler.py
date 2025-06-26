@@ -109,28 +109,39 @@ class DatabaseHandler:
         
         try:
             with self.conn.cursor() as cur:
-                cur.execute(check_sql, (applicant_data.get("Email"),))
+                # Standardize email to prevent duplicates
+                email = applicant_data.get("Email", "").strip().lower() if applicant_data.get("Email") else None
+                if not email:
+                    logger.warning(f"Skipping applicant with no email: {applicant_data.get('Name')}")
+                    return None
+
+                cur.execute(check_sql, (email,))
                 if cur.fetchone():
-                    logger.info(f"Skipping duplicate applicant: {applicant_data.get('Email')}")
+                    logger.info(f"Skipping duplicate applicant: {email}")
                     return None
                 
                 cur.execute(insert_applicant_sql, (
-                    applicant_data.get("Name"), applicant_data.get("Email"), applicant_data.get("Phone"),
+                    applicant_data.get("Name"), email, applicant_data.get("Phone"),
                     applicant_data.get("Domain", "Other"), applicant_data.get("Education"),
                     applicant_data.get("JobHistory"), applicant_data.get("CV_URL"),
-                    email_data.get("thread_id")
+                    email_data.get("thread_id"),
                 ))
                 applicant_id = cur.fetchone()[0]
 
                 # Log the initial 'New' status
                 cur.execute(log_status_sql, (applicant_id, 'New'))
 
-                cur.execute(insert_comm_sql, (
-                    applicant_id, email_data.get("id"), email_data.get("sender"),
-                    email_data.get("subject"), email_data.get("body")
-                ))
+                # Only insert communication if it's a real email (has an id)
+                if email_data and email_data.get('id'):
+                    cur.execute(insert_comm_sql, (
+                        applicant_id, email_data.get("id"), email_data.get("sender"),
+                        email_data.get("subject"), email_data.get("body")
+                    ))
+                    logger.info(f"New applicant '{applicant_data.get('Name')}' and initial email inserted.")
+                else:
+                    logger.info(f"New applicant '{applicant_data.get('Name')}' inserted from bulk/manual import.")
+
                 self.conn.commit()
-                logger.info(f"New applicant '{applicant_data.get('Name')}' and initial email inserted. Initial status logged.")
                 return applicant_id
         except Exception as e:
             logger.error(f"Error in combined insert: {e}", exc_info=True)
@@ -229,47 +240,12 @@ class DatabaseHandler:
                 return pd.DataFrame()
 
     def insert_bulk_applicants(self, applicants_df):
-        self._connect()
-        if not self.conn: return 0, 0
-        inserted_count, skipped_count = 0, 0
-        applicants_df.columns = [col.replace('_', ' ').title().replace(' ', '') for col in applicants_df.columns]
-        required_cols = ['Name', 'Email']
-        if not all(col in applicants_df.columns for col in required_cols):
-            logger.error(f"Import failed: DataFrame is missing required columns 'Name' or 'Email'. Found: {list(applicants_df.columns)}")
-            return "Import failed: The sheet must contain 'Name' and 'Email' columns.", 0
-        
-        check_sql = "SELECT id FROM applicants WHERE email = %s;"
-        insert_sql = "INSERT INTO applicants (name, email, phone, domain, education, job_history, cv_url, status, feedback) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;"
-        log_status_sql = "INSERT INTO applicant_status_history (applicant_id, status_name) VALUES (%s, %s);"
-
-        try:
-            with self.conn.cursor() as cur:
-                for _, row in applicants_df.iterrows():
-                    email = row.get('Email')
-                    if not email:
-                        skipped_count += 1
-                        continue
-                    cur.execute(check_sql, (email,))
-                    if cur.fetchone():
-                        skipped_count += 1
-                        continue
-                    
-                    status = row.get('Status', 'New')
-                    cur.execute(insert_sql, (
-                        row.get('Name'), email, row.get('Phone'), row.get('Domain', 'Other'),
-                        row.get('Education'), row.get('JobHistory'), row.get('CvUrl'),
-                        status, row.get('Feedback')
-                    ))
-                    applicant_id = cur.fetchone()[0]
-                    cur.execute(log_status_sql, (applicant_id, status))
-                    inserted_count += 1
-                self.conn.commit()
-                logger.info(f"Bulk insert complete. Inserted: {inserted_count}, Skipped: {skipped_count}")
-        except Exception as e:
-            logger.error(f"Error during bulk insert: {e}", exc_info=True)
-            self.conn.rollback()
-            return str(e), 0
-        return inserted_count, skipped_count
+        # This function is now a simple wrapper. The core logic is in the Importer module.
+        from modules.importer import Importer
+        # This is a bit of a hack to avoid circular imports, but for this structure it's okay.
+        # A better solution would be a more formal dependency injection pattern.
+        importer = Importer(None) # Credentials are not needed for this specific path
+        return importer._process_dataframe(applicants_df)
     
     def log_interview(self, applicant_id, interviewer_id, title, start_time, end_time, event_id):
         self._connect();
@@ -436,3 +412,4 @@ class DatabaseHandler:
             logger.error(f"Error updating status for applicant {applicant_id}: {e}", exc_info=True)
             self.conn.rollback()
             return False
+
