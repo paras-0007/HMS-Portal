@@ -6,7 +6,6 @@ import uuid
 import re
 import asyncio
 import requests
-import os # Added for local file import
 from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -19,7 +18,7 @@ from modules.email_handler import EmailHandler
 from modules.calendar_handler import CalendarHandler
 from modules.sheet_updater import SheetsUpdater
 from processing_engine import ProcessingEngine
-from modules.importer import Importer # Added for new import logic
+from modules.importer import Importer
 from streamlit_quill import st_quill
 
 # --- Page Configuration ---
@@ -32,12 +31,10 @@ def create_flow():
     and a local credentials.json file for development.
     """
     try:
-        # Local development: use credentials.json
         with open('credentials.json') as f:
             client_config = json.load(f)
         redirect_uri = "http://localhost:8501"
     except FileNotFoundError:
-        # Deployed on Streamlit Cloud: use st.secrets
         client_config = {
             "web": {
                 "client_id": st.secrets["GOOGLE_CLIENT_ID"],
@@ -76,17 +73,33 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 def run_app():
     def logout():
+        """
+        Handles the logout process by revoking the Google token, clearing the session,
+        and cleaning the URL to ensure a fresh login state.
+        """
+        # Attempt to revoke the token, but don't block logout if it fails
         if 'credentials' in st.session_state:
-            try:
-                requests.post('https://oauth2.googleapis.com/revoke',
-                    params={'token': st.session_state.credentials.token},
-                    headers={'content-type': 'application/x-www-form-urlencoded'})
-            except Exception as e:
-                st.error(f"Failed to revoke token: {e}")
+            creds = st.session_state.credentials
+            # Prioritize revoking the refresh token as it invalidates the entire grant
+            token_to_revoke = creds.refresh_token or creds.token
+            if token_to_revoke:
+                try:
+                    requests.post('https://oauth2.googleapis.com/revoke',
+                        params={'token': token_to_revoke},
+                        headers={'content-type': 'application/x-www-form-urlencoded'})
+                except Exception:
+                    # Silently pass if revocation fails (e.g., token already expired)
+                    pass
 
+        # Clear all items from the session state for a clean slate
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         
+        # Clear the query parameters from the URL
+        if 'code' in st.query_params:
+            st.query_params.clear()
+        
+        # Rerun the app. With a clear session and URL, it will show the login page.
         st.rerun()
     
     credentials = st.session_state.credentials
@@ -109,9 +122,10 @@ def run_app():
     @st.cache_data(ttl=300)
     def load_all_applicants():
         df = db_handler.fetch_applicants_as_df()
+        # MODIFIED: Renamed 'domain' to 'Role' and 'cv_url' to 'Resume' for frontend use.
         rename_map = {
-            'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Domain',
-            'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'CvUrl', 'status': 'Status',
+            'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
+            'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
             'feedback': 'Feedback', 'created_at': 'CreatedAt', 'gmail_thread_id': 'GmailThreadId',
             'last_action_date': 'LastActionDate'
         }
@@ -127,6 +141,8 @@ def run_app():
     def load_interviews(applicant_id): return db_handler.get_interviews_for_applicant(applicant_id)
     @st.cache_data(ttl=300)
     def load_status_history(applicant_id): return db_handler.get_status_history(applicant_id)
+    @st.cache_data(ttl=10) # Lower TTL for conversations as they change frequently
+    def load_conversations(applicant_id): return db_handler.get_conversations(applicant_id)
 
     # --- Callbacks and UI Functions ---
     def set_detail_view(applicant_id):
@@ -158,6 +174,7 @@ def run_app():
         return "\n---\n\n".join([f"Note for '{n['stage']}' ({n['timestamp'].astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b-%Y %I:%M %p')}):\n{n['note']}\n" for n in sorted_notes])
 
     def render_dynamic_journey_tracker(status_history_df, current_status):
+        # MODIFIED: Journey tracker now displays the 'Rejected' status in the pipeline.
         if status_history_df.empty and current_status == "New":
             pipeline_stages = {"New": datetime.datetime.now(datetime.timezone.utc)}
         else:
@@ -165,36 +182,40 @@ def run_app():
         
         if current_status not in pipeline_stages: 
             pipeline_stages[current_status] = datetime.datetime.now(datetime.timezone.utc)
-        
+
         if current_status == "Rejected":
             st.error("**Process Ended: Applicant Rejected**", icon="✖️")
-        
+
         stage_names = list(pipeline_stages.keys())
+        # Ensure 'Rejected' or 'Hired' are last if they exist
+        if "Hired" in stage_names:
+            stage_names.remove("Hired"); stage_names.append("Hired")
+        if "Rejected" in stage_names:
+            stage_names.remove("Rejected"); stage_names.append("Rejected")
+            
         current_stage_index = stage_names.index(current_status) if current_status in stage_names else -1
         num_stages = len(stage_names)
-
-        column_widths = [3] * num_stages
+        
+        column_widths = [3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)]
+        if not column_widths: return
+        
         cols = st.columns(column_widths)
-
         for i, stage_name in enumerate(stage_names):
-            with cols[i]:
+            with cols[i*2]:
                 icon, color, weight = ("⏳", "lightgrey", "normal")
-                if i < current_stage_index: 
-                    icon, color, weight = "✅", "green", "normal"
-                elif i == current_stage_index: 
-                    icon, color, weight = "➡️", "#007bff", "bold"
-                
-                if stage_name == "Hired": 
-                    icon, color, weight = "🎉", "green", "bold"
-                if stage_name == "Rejected": 
-                    icon, color, weight = "✖️", "#FF4B4B", "bold"
+                if i < current_stage_index: icon, color, weight = "✅", "green", "normal"
+                elif i == current_stage_index: icon, color, weight = "➡️", "#007bff", "bold"
 
+                if stage_name == "Hired": icon, color, weight = "🎉", "green", "bold"
+                if stage_name == "Rejected": icon, color, weight = "✖️", "#FF4B4B", "bold"
+                
                 timestamp = pipeline_stages.get(stage_name)
                 time_str = f"<p style='font-size: 11px; color: grey; margin: 0; white-space: nowrap;'>{timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b %I:%M %p')}</p>"
-                
                 st.markdown(f"""<div style='text-align: center; padding: 5px; border-radius: 10px; background-color: #2E2E2E; margin: 2px;'>
                     <p style='font-size: 24px; color: {color}; margin-bottom: -5px;'>{icon}</p>
                     <p style='font-weight: {weight}; color: {color}; white-space: nowrap;'>{stage_name}</p>{time_str}</div>""", unsafe_allow_html=True)
+            if i < num_stages - 1:
+                with cols[i*2 + 1]: st.markdown("<p style='text-align: center; font-size: 24px; color: grey; margin-top: 35px;'>→</p>", unsafe_allow_html=True)
 
     def render_feedback_dossier(applicant_id, feedback_json_str):
         st.subheader("Feedback & Notes")
@@ -246,70 +267,93 @@ def run_app():
         df_all = load_all_applicants()
         df_filtered = df_all.copy()
         
-        search_query = st.text_input("Search by Name or Email")
+        search_query = st.text_input("Search by Name or Email" , placeholder="e.g Paras Kaushik ")
         if search_query:
             df_filtered = df_filtered[df_filtered['Name'].str.contains(search_query, case=False, na=False) | df_filtered['Email'].str.contains(search_query, case=False, na=False)]
         
-        status_list_options = ['All'] + load_statuses()
-        status_filter = st.selectbox("Filter by Status:", options=status_list_options)
+        status_list = ['All'] + load_statuses()
+        status_filter = st.selectbox("Filter by Status:", options=status_list)
         if status_filter != 'All': df_filtered = df_filtered[df_filtered['Status'] == status_filter]
         
         domain_options = ['All']
-        if not df_all.empty and 'Domain' in df_all.columns:
-            domain_options.extend(sorted(df_all['Domain'].dropna().unique().tolist()))
-        domain_filter = st.selectbox("Filter by Domain:", options=domain_options)
-        if domain_filter != 'All' and 'Domain' in df_filtered.columns:
-            df_filtered = df_filtered[df_filtered['Domain'] == domain_filter]
+        # MODIFIED: Changed 'Domain' to 'Role' for filtering.
+        if not df_all.empty and 'Role' in df_all.columns:
+            domain_options.extend(sorted(df_all['Role'].dropna().unique().tolist()))
+        domain_filter = st.selectbox("Filter by Role:", options=domain_options)
+        if domain_filter != 'All' and 'Role' in df_filtered.columns:
+            df_filtered = df_filtered[df_filtered['Role'] == domain_filter]
         
         st.divider()
         if st.button("🔄 Refresh All Data", use_container_width=True): st.cache_data.clear(); st.rerun()
-        st.divider()
 
-        st.subheader("📂 Recent Exports")
-        export_logs_df = db_handler.fetch_export_logs()
-        if not export_logs_df.empty:
-            for _, log in export_logs_df.iterrows(): 
+        # MODIFIED: Separated Imports and Exports into their own expanders.
+        with st.expander("📂 Recent Exports"):
+            logs = db_handler.fetch_export_logs()
+            if logs.empty:
+                st.info("No exports have been made yet.")
+            for _, log in logs.iterrows(): 
                 col1, col2 = st.columns([4, 1])
                 col1.markdown(f"• [{log['file_name']}]({log['sheet_url']})", unsafe_allow_html=True)
                 if col2.button("🗑️", key=f"delete_log_{log['id']}", help="Delete this export log"):
                     db_handler.delete_export_log(log['id'])
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
-        else:
-            st.caption("No recent exports.")
-        
-        st.divider()
-        st.subheader("📥 Import Applicants")
-        
-        with st.expander("Import from Google Sheet"):
-            sheet_url = st.text_input("Paste Google Sheet URL")
-            if st.button("Import from Sheet"):
-                if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
-                    with st.spinner("Reading & Importing..."):
-                        data = sheets_updater.read_sheet_data(sid.group(1))
-                        if isinstance(data, pd.DataFrame) and not data.empty:
-                            inserted, skipped = importer._process_dataframe(data)
-                            st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
-                        else: st.error("Could not read data from sheet.")
-                else: st.warning("Please provide a valid Google Sheet URL.")
-        
-        with st.expander("Import from Local Resume"):
-            uploaded_resume = st.file_uploader("Upload a resume (PDF or DOCX)", type=['pdf', 'docx'])
-            if uploaded_resume:
-                with st.spinner(f"Processing {uploaded_resume.name}..."):
-                    applicant_id, message = importer.import_from_local_resume_file(uploaded_resume)
-                    if applicant_id:
-                        st.success(message)
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(message)
+
+        with st.expander("📥 Import Applicants"):
+            # MODIFIED: Added option for single resume file upload.
+            import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
+
+            if import_option == "From Google Sheet":
+                sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
+                if st.button("Import from Sheet"):
+                    if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
+                        with st.spinner("Reading & Importing from Google Sheet..."):
+                            data = sheets_updater.read_sheet_data(sid.group(1))
+                            if isinstance(data, pd.DataFrame) and not data.empty:
+                                inserted, skipped = importer._process_dataframe(data)
+                                st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
+                            else: st.error(f"Could not read data from sheet. {data}")
+                    else: st.warning("Please provide a valid Google Sheet URL.")
+            
+            elif import_option == "From local file (CSV/Excel)":
+                uploaded_file = st.file_uploader("Choose a CSV or Excel file for bulk import", type=["csv", "xls", "xlsx"])
+                if uploaded_file is not None:
+                    if st.button("Import from File"):
+                        with st.spinner("Processing file and importing..."):
+                            status_msg, count = importer.import_from_local_file(uploaded_file)
+                            st.success(status_msg)
+                            if count > 0: st.cache_data.clear(); st.rerun()
+
+            elif import_option == "From single resume URL":
+                resume_link = st.text_input("Paste resume URL", key="resume_url_input")
+                if st.button("Import from Resume URL"):
+                    if resume_link:
+                        with st.spinner("Analyzing resume and creating profile..."):
+                            applicant_id = importer.import_from_resume(resume_link)
+                            if applicant_id:
+                                st.success(f"Successfully imported applicant. New ID: {applicant_id}")
+                                st.cache_data.clear(); st.rerun()
+                            else: st.error("Failed to import from resume link.")
+                    else: st.warning("Please provide a resume URL.")
+            
+            # ADDED: Logic for importing a single resume file from local system.
+            elif import_option == "From single resume file (PDF/DOCX)":
+                uploaded_resume = st.file_uploader("Upload a single resume", type=['pdf', 'docx'])
+                if uploaded_resume:
+                    if st.button("Import from Resume File"):
+                        with st.spinner("Analyzing resume and creating profile..."):
+                            applicant_id = importer.import_from_local_resume(uploaded_resume)
+                            if applicant_id:
+                                st.success(f"Successfully imported applicant. New ID: {applicant_id}")
+                                st.cache_data.clear(); st.rerun()
+                            else:
+                                st.error("Failed to import from resume file.")
 
 
     # --- Main Page UI ---
-    st.title("HR Applicant Dashboard")
-    df_all_main = load_all_applicants()
-    st.markdown(f"### Displaying Applicants: {len(df_filtered)}")
+    st.title("Hiring Management System")
+    df_all = load_all_applicants()
+    st.markdown(f"### Displaying Applicants: {len(df_all)}")
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
@@ -320,11 +364,13 @@ def run_app():
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All Visible", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-            header_cols[0].markdown("")
+            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            
+            # MODIFIED: Column headers updated to Role.
+            header_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
+            header_cols[0].markdown("** **")
             header_cols[1].markdown("**Name**")
-            header_cols[2].markdown("**Domain**")
+            header_cols[2].markdown("**Role**")
             header_cols[3].markdown("**Status**")
             header_cols[4].markdown("**Applied On**")
             header_cols[5].markdown("**Last Action**")
@@ -332,38 +378,35 @@ def run_app():
             
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
+            
+            # MODIFIED: Grid view layout improved for better alignment.
             for _, row in df_display.iterrows():
-                row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
+                row_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
+                with row_cols[0]:
+                    st.write(" ") # For vertical alignment
+                    is_selected = st.checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False), label_visibility="hidden")
                 if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"**{row['Name']}**")
-                row_cols[2].markdown(str(row['Domain']))
-                row_cols[3].markdown(str(row['Status']))
-                row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
+                row_cols[1].markdown(f"<div style='margin-top: 10px;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
+                row_cols[2].markdown(f"<div style='margin-top: 10px;'>{row['Role']}</div>", unsafe_allow_html=True)
+                row_cols[3].markdown(f"<div style='margin-top: 10px;'>{row['Status']}</div>", unsafe_allow_html=True)
+                row_cols[4].markdown(f"<div style='margin-top: 10px;'>{pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y')}</div>", unsafe_allow_html=True)
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(last_action_str)
+                row_cols[5].markdown(f"<div style='margin-top: 10px;'>{last_action_str}</div>", unsafe_allow_html=True)
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             
             with st.sidebar:
-                st.divider()
-                st.header("🔥 Actions on Selected")
-                if not selected_ids: st.info("Select applicants from the grid.")
+                st.divider(); st.header("🔥 Actions on Selected")
+                if not selected_ids: st.info("Select applicants from the dashboard.")
                 else:
                     st.success(f"**{len(selected_ids)} applicant(s) selected.**")
                     if st.button(f"Export {len(selected_ids)} to Sheet", use_container_width=True):
                         with st.spinner("Generating Google Sheet..."):
-                            export_df = df_all_main[df_all_main['Id'].isin(selected_ids)].copy()
+                            export_df = df_all[df_all['Id'].isin(selected_ids)].copy()
                             export_df['Feedback'] = export_df['Feedback'].apply(format_feedback_for_export)
-                            
-                            export_df = export_df.rename(columns={'Domain': 'Role', 'CvUrl': 'Resume'})
-                            
+                            # MODIFIED: Columns for export updated to Resume and Role.
                             cols = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
-                            
                             res = sheets_updater.create_export_sheet(export_df[cols].to_dict('records'), cols)
-                            if res: 
-                                db_handler.insert_export_log(res['title'], res['url'])
-                                st.success("Export successful!")
-                                st.rerun()
+                            if res: db_handler.insert_export_log(res['title'], res['url']); st.success("Export successful!"); st.rerun()
                             else: st.error("Export failed.")
                     if st.button(f"Delete {len(selected_ids)} Applicant(s)", type="primary", use_container_width=True): st.session_state.confirm_delete = True
                     if st.session_state.confirm_delete:
@@ -375,126 +418,152 @@ def run_app():
                         if c2.button("❌ Cancel", use_container_width=True): st.session_state.confirm_delete = False; st.rerun()
 
         elif st.session_state.view_mode == 'detail':
-            applicant = df_all_main[df_all_main['Id'] == st.session_state.selected_applicant_id].iloc[0]
-            applicant_id = int(applicant['Id'])
+            applicant_df = df_all[df_all['Id'] == st.session_state.selected_applicant_id]
+            if applicant_df.empty:
+                st.warning("Applicant not found. They may have been deleted.")
+                st.button("⬅️ Back to Dashboard", on_click=set_grid_view)
+            else:
+                applicant = applicant_df.iloc[0]
+                applicant_id = int(applicant['Id'])
 
-            st.button("⬅️ Back to Dashboard", on_click=set_grid_view)
-            if 'booking_success_message' in st.session_state:
-                st.success(st.session_state.booking_success_message)
-                del st.session_state.booking_success_message
-            
-            st.header(f"Profile: {applicant['Name']}")
-            st.markdown(f"**Applying for:** `{applicant['Domain']}` | **Current Status:** `{applicant['Status']}`")
-            st.divider()
-            render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status'])
-            st.divider()
+                st.button("⬅️ Back to Dashboard", on_click=set_grid_view)
+                if 'booking_success_message' in st.session_state:
+                    st.success(st.session_state.booking_success_message)
+                    del st.session_state.booking_success_message
+                
+                st.header(f"{applicant['Name']}")
+                # MODIFIED: Changed 'Domain' to 'Role'
+                st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
+                st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-            tab_profile, tab_timeline, tab_comms = st.tabs(["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"])
-            with tab_profile:
-                col1, col2 = st.columns([2, 1], gap="large")
-                with col1:
-                    st.subheader("Applicant Details")
-                    st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
-                    st.link_button("📄 View Resume on Drive", url=applicant['CvUrl'] or "#", use_container_width=True, disabled=not applicant['CvUrl'])
-                    st.markdown("**Education**")
-                    st.info(applicant['Education'] or "No details provided.")
+                tab_profile, tab_timeline, tab_comms = st.tabs(["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"])
+                with tab_profile:
+                    col1, col2 = st.columns([2, 1], gap="large")
+                    with col1:
+                        st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
+                        # MODIFIED: Changed to use 'Resume' column and updated label
+                        st.link_button("📄 View Resume on Drive", url=applicant['Resume'] or "#", use_container_width=True, disabled=not applicant['Resume'])
+                        st.markdown("**Education**"); st.write(applicant['Education'] or "No details.")
+                        # MODIFIED: Added divider for better visual separation.
+                        st.divider() 
+                        st.markdown("**Job History**"); st.markdown(applicant['JobHistory'] or "No details.", unsafe_allow_html=True)
+                    with col2:
+                        st.subheader("Actions")
+                        with st.form("status_form_tab"):
+                            st.markdown("**Change Applicant Status**")
+                            idx = status_list.index(applicant['Status']) if applicant['Status'] in status_list else 0
+                            new_status = st.selectbox("New Status", options=status_list, index=idx, label_visibility="collapsed")
+                            if st.form_submit_button("Save Status", use_container_width=True):
+                                if db_handler.update_applicant_status(applicant_id, new_status): st.success("Status Updated!"); st.cache_data.clear(); st.rerun()
+                                else: st.error("Update failed.")
+                        st.divider()
+                        st.markdown("**Interview Management**")
+                        interviews = load_interviews(applicant_id)
+                        if not interviews.empty:
+                            for _, interview in interviews.iterrows(): st.info(f"**Scheduled:** {interview['event_title']} on {interview['start_time'].strftime('%b %d, %Y')}")
+                        if not st.session_state.get(f'schedule_view_active_{applicant_id}', False):
+                            if st.button("🗓️ Schedule New Interview", use_container_width=True, type="secondary"): st.session_state[f'schedule_view_active_{applicant_id}'] = True; st.rerun()
+                        if st.session_state.get(f'schedule_view_active_{applicant_id}', False):
+                            with st.container(border=True):
+                                st.write("**New Interview**"); 
+                                with st.form(f"schedule_form_{applicant_id}"):
+                                    opts = {f"{name} ({email})": email for name, email in zip(interviewer_list['name'], interviewer_list['email'])}
+                                    interviewer_display = st.selectbox("Interviewer", options=list(opts.keys()))
+                                    duration = st.selectbox("Duration (mins)", options=[30, 45, 60])
+                                    if st.form_submit_button("Find Times", use_container_width=True):
+                                        st.session_state[f'schedule_interviewer_{applicant_id}'] = opts[interviewer_display]
+                                        st.session_state[f'schedule_duration_{applicant_id}'] = duration
+                                        with st.spinner("Finding open slots..."): st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration)
+                                        if not st.session_state.get(f'available_slots_{applicant_id}'): st.warning("No available slots found.")
+                                if st.session_state.get(f'available_slots_{applicant_id}'):
+                                    slots = st.session_state[f'available_slots_{applicant_id}']; slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
+                                    with st.form(f"booking_form_{applicant_id}"):
+                                        final_slot_str = st.selectbox("Confirmed Time:", options=list(slot_options.keys()))
+                                        desc = st.text_area("Description:", placeholder="First round technical interview.")
+                                        if st.form_submit_button("✅ Confirm & Book", use_container_width=True):
+                                            start_time = slot_options[final_slot_str]; end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
+                                            interviewer_email = st.session_state[f'schedule_interviewer_{applicant_id}']
+                                            event = calendar_handler.create_calendar_event(applicant['Name'], applicant['Email'], interviewer_email, start_time, end_time, desc)
+                                            if event:
+                                                i_id = interviewer_list[interviewer_list['email'] == interviewer_email].iloc[0]['id']
+                                                db_handler.log_interview(applicant_id, i_id, event['summary'], start_time, end_time, event['id'])
+                                                
+                                                st.session_state.booking_success_message = f"✅ Interview confirmed with {applicant['Name']} for {final_slot_str}."
+                                                for key in list(st.session_state.keys()):
+                                                    if key.startswith(f'schedule_') or key.startswith('available_slots_'): del st.session_state[key]
+                                                st.cache_data.clear(); st.rerun()
+                                            else: st.error("Failed to create calendar event.")
+                                if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
+                with tab_timeline:
+                    st.subheader("Log a New Note")
+                    with st.form("note_form_tab"):
+                        history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
+                        note_type = st.selectbox("Note for Stage", options=note_stages)
+                        note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
+                        if st.form_submit_button("Save Note", use_container_width=True):
+                            if note_content:
+                                notes = get_feedback_notes(applicant['Feedback'])
+                                new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
+                                notes.append(new_note)
+                                for note in notes:
+                                    if isinstance(note['timestamp'], datetime.datetime): note['timestamp'] = note['timestamp'].isoformat()
+                                if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)): st.success("Note saved!"); st.cache_data.clear(); st.rerun()
+                                else: st.error("Failed to save note.")
+                            else: st.warning("Note cannot be empty.")
                     st.divider()
-                    st.markdown("**Job History**")
-                    st.info(applicant['JobHistory'] or "No details provided.")
-                with col2:
-                    st.subheader("Actions")
-                    with st.form("status_form_tab"):
-                        st.markdown("**Change Applicant Status**")
-                        idx = status_list.index(applicant['Status']) if applicant['Status'] in status_list else 0
-                        new_status = st.selectbox("New Status", options=status_list, index=idx, label_visibility="collapsed")
-                        if st.form_submit_button("Save Status", use_container_width=True):
-                            if db_handler.update_applicant_status(applicant_id, new_status): st.success("Status Updated!"); st.cache_data.clear(); st.rerun()
-                            else: st.error("Update failed.")
-                    st.divider()
-                    st.markdown("**Interview Management**")
-                    interviews = load_interviews(applicant_id)
-                    if not interviews.empty:
-                        for _, interview in interviews.iterrows(): st.info(f"**Scheduled:** {interview['event_title']} on {interview['start_time'].strftime('%b %d, %Y')}")
-                    if not st.session_state.get(f'schedule_view_active_{applicant_id}', False):
-                        if st.button("🗓️ Schedule New Interview", use_container_width=True): st.session_state[f'schedule_view_active_{applicant_id}'] = True; st.rerun()
-                    if st.session_state.get(f'schedule_view_active_{applicant_id}', False):
-                        with st.container(border=True):
-                            st.write("**New Interview**")
-                            with st.form(f"schedule_form_{applicant_id}"):
-                                opts = {f"{name} ({email})": email for name, email in zip(interviewer_list['name'], interviewer_list['email'])}
-                                interviewer_display = st.selectbox("Interviewer", options=list(opts.keys()))
-                                duration = st.selectbox("Duration (mins)", options=[30, 45, 60])
-                                if st.form_submit_button("Find Times", use_container_width=True):
-                                    st.session_state[f'schedule_interviewer_{applicant_id}'] = opts[interviewer_display]
-                                    st.session_state[f'schedule_duration_{applicant_id}'] = duration
-                                    with st.spinner("Finding open slots..."): st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration)
-                                    if not st.session_state.get(f'available_slots_{applicant_id}'): st.warning("No available slots found.")
-                            if st.session_state.get(f'available_slots_{applicant_id}'):
-                                slots = st.session_state[f'available_slots_{applicant_id}']
-                                slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
-                                with st.form(f"booking_form_{applicant_id}"):
-                                    final_slot_str = st.selectbox("Confirmed Time:", options=list(slot_options.keys()))
-                                    desc = st.text_area("Description:", placeholder="First round technical interview for the Full Stack Developer role.")
-                                    if st.form_submit_button("✅ Confirm & Book", use_container_width=True):
-                                        start_time = slot_options[final_slot_str]
-                                        end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
-                                        interviewer_email = st.session_state[f'schedule_interviewer_{applicant_id}']
-                                        event = calendar_handler.create_calendar_event(applicant['Name'], applicant['Email'], interviewer_email, start_time, end_time, desc)
-                                        if event:
-                                            i_id = interviewer_list[interviewer_list['email'] == interviewer_email].iloc[0]['id']
-                                            db_handler.log_interview(applicant_id, i_id, event['summary'], start_time, end_time, event['id'])
-                                            
-                                            st.session_state.booking_success_message = f"✅ Interview confirmed with {applicant['Name']} for {final_slot_str}."
-                                            for key in list(st.session_state.keys()):
-                                                if key.startswith(f'schedule_') or key.startswith('available_slots_'): del st.session_state[key]
-                                            st.cache_data.clear()
-                                            st.rerun()
-                                        else: st.error("Failed to create calendar event.")
-                            if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
-
-            with tab_timeline:
-                st.subheader("Log a New Note")
-                with st.form("note_form_tab"):
-                    history_df = load_status_history(applicant_id)
-                    note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
-                    note_type = st.selectbox("Note for Stage", options=note_stages)
-                    note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
-                    if st.form_submit_button("Save Note", use_container_width=True):
-                        if note_content:
-                            notes = get_feedback_notes(applicant['Feedback'])
-                            new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
-                            notes.append(new_note)
-                            for note in notes:
-                                if isinstance(note['timestamp'], datetime.datetime): note['timestamp'] = note['timestamp'].isoformat()
-                            if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)): st.success("Note saved!"); st.cache_data.clear(); st.rerun()
-                            else: st.error("Failed to save note.")
-                        else: st.warning("Note cannot be empty.")
-                st.divider()
-                render_feedback_dossier(applicant_id, applicant['Feedback'])
-
-            with tab_comms:
-                st.subheader("Communication Hub")
-                with st.container(height=300):
-                    conversations = db_handler.get_conversations(applicant_id)
-                    if conversations.empty: st.info("No communication history found.")
-                    else:
-                        for _, comm in conversations.iterrows():
-                            with st.chat_message("user" if comm['direction'] == 'Incoming' else "assistant"):
-                                st.markdown(f"**From:** {comm['sender']}<br>**Subject:** {comm.get('subject', 'N/A')}<hr>{comm['body']}", unsafe_allow_html=True)
-                with st.form(f"email_form_{applicant_id}"):
-                    content = st_quill(value=f"Dear {applicant['Name']},\n\n", html=True)
-                    uploaded_file = st.file_uploader("Attach a file (PDF, DOCX, Image)", type=['pdf', 'docx', 'jpg', 'jpeg', 'png'])
+                    render_feedback_dossier(applicant_id, applicant['Feedback'])
+                with tab_comms:
+                    st.subheader("Email Hub")
+                    conversations = load_conversations(applicant_id)
+                    with st.container(height=300):
+                        if conversations.empty: st.info("No communication history found for this applicant.")
+                        else:
+                            for _, comm in conversations.iterrows():
+                                with st.chat_message("user" if comm['direction'] == 'Incoming' else "assistant"):
+                                    st.markdown(f"**From:** {comm['sender']}<br>**Subject:** {comm.get('subject', 'N/A')}<hr>{comm['body']}", unsafe_allow_html=True)
                     
-                    if st.form_submit_button("Send Email", use_container_width=True):
-                        if content and len(content) > 15:
-                            subject = f"Re: Your application for {applicant['Domain']}"
-                            with st.spinner("Sending..."):
-                                msg = email_handler.send_email(applicant['Email'], subject, content, applicant['GmailThreadId'], attachment=uploaded_file)
-                                if msg:
-                                    db_handler.insert_communication({"applicant_id": applicant_id, "gmail_message_id": msg['id'], "sender": "HR", "subject": subject, "body": content, "direction": "Outgoing"})
-                                    st.success("Email sent!"); st.rerun()
-                                else: st.error("Failed to send email.")
-                        else: st.warning("Email body is too short.")
+                    with st.form(f"email_form_{applicant_id}"):
+                        email_body_content = st_quill(value=f"Dear {applicant['Name']},\n\n", html=True, key=f"quill_{applicant_id}")
+                        uploaded_file = st.file_uploader("Attach a file", type=['pdf', 'docx', 'jpg', 'png'])
+                        
+                        # Disable form if applicant has no email
+                        disable_form = not applicant['Email'] or pd.isna(applicant['Email'])
+                        if disable_form:
+                            st.warning("Cannot send email: Applicant has no email address.")
+
+                        if st.form_submit_button("Send Email", use_container_width=True, disabled=disable_form):
+                            if email_body_content and len(email_body_content) > 15:
+                                # MODIFIED: Changed 'Domain' to 'Role'
+                                subject = f"Re: Your application for {applicant['Role']}"
+                                with st.spinner("Sending..."):
+                                    # Use the existing thread_id if available, otherwise it will be None
+                                    thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
+                                    
+                                    msg = email_handler.send_email(applicant['Email'], subject, email_body_content, thread_id, attachment=uploaded_file)
+                                    
+                                    if msg:
+                                        st.success("Email sent successfully!")
+                                        # Log this outgoing email to our database
+                                        db_handler.insert_communication({
+                                            "applicant_id": applicant_id, 
+                                            "gmail_message_id": msg['id'], 
+                                            "sender": "HR (Sent from App)", 
+                                            "subject": subject, 
+                                            "body": email_body_content, 
+                                            "direction": "Outgoing"
+                                        })
+
+                                        # If there was no thread_id before, update the applicant record with the new one
+                                        if not thread_id and msg.get('threadId'):
+                                            db_handler.update_applicant_thread_id(applicant_id, msg['threadId'])
+
+                                        # Clear caches to show the new message and rerun
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to send email.")
+                            else:
+                                st.warning("Email body is too short.")
 
     with main_tab2:
         st.header("Manage System Settings")
@@ -504,8 +573,7 @@ def run_app():
         with col_status:
             st.subheader("Applicant Statuses")
             for status in status_list:
-                c1, c2 = st.columns([4, 1])
-                c1.write(status)
+                c1, c2 = st.columns([4, 1]); c1.write(status)
                 if status not in ["New", "Hired", "Rejected"]:
                     if c2.button("🗑️", key=f"del_status_{status}"):
                         err = db_handler.delete_status(status)
@@ -516,23 +584,18 @@ def run_app():
                 if st.form_submit_button("Add Status", use_container_width=True):
                     if new_status and db_handler.add_status(new_status): st.success(f"Status '{new_status}' added."); st.cache_data.clear(); st.rerun()
                     else: st.warning(f"Status '{new_status}' may already exist.")
-        
         with col_interviewer:
             st.subheader("Interviewers")
             for _, interviewer in interviewer_list.iterrows():
-                c1, c2 = st.columns([4, 1])
-                c1.text(f"{interviewer['name']} ({interviewer['email']})")
+                c1, c2 = st.columns([4, 1]); c1.text(f"{interviewer['name']} ({interviewer['email']})")
                 if c2.button("🗑️", key=f"del_interviewer_{interviewer['id']}"):
                     if db_handler.delete_interviewer(interviewer['id']): st.success("Interviewer deleted."); st.cache_data.clear(); st.rerun()
                     else: st.error("Could not delete interviewer.")
             with st.form("new_interviewer_form", clear_on_submit=True):
-                st.write("Add New Interviewer")
-                name = st.text_input("Name")
-                email = st.text_input("Google Account Email")
+                st.write("Add New Interviewer"); name = st.text_input("Name"); email = st.text_input("Google Account Email")
                 if st.form_submit_button("Add Interviewer", use_container_width=True):
                     if name and email and db_handler.add_interviewer(name, email): st.success("Interviewer added."); st.cache_data.clear(); st.rerun()
                     else: st.warning("Please provide name and a unique email.")
-        
         st.subheader("🔴 Danger Zone")
         with st.expander("Reset Application Data"):
             st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
@@ -578,7 +641,7 @@ if 'credentials' not in st.session_state:
     else:
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-        st.title("Welcome to the HMS Automation System")
+        st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
