@@ -401,7 +401,7 @@ def run_app():
             
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox(label=f"Select {row['Name']}", value=st.session_state.get(f"select_{row['Id']}", False),label_visibility="hidden")
+                is_selected = row_cols[0].checkbox(label=f"Select {row['Name']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
                 row_cols[2].text(row['Role'])
