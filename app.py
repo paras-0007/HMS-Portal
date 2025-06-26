@@ -115,7 +115,7 @@ def run_app():
     # --- Data Loading & Caching Functions ---
     @st.cache_data(ttl=300)
     def load_all_applicants():
-        df = db_handler.fetch_applicants_as_df() #
+        df = db_handler.fetch_applicants_as_df()
         rename_map = {
             'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
             'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
@@ -127,9 +127,9 @@ def run_app():
         return df
 
     @st.cache_data(ttl=3600)
-    def load_statuses(): return db_handler.get_statuses() #
+    def load_statuses(): return db_handler.get_statuses()
     @st.cache_data(ttl=3600)
-    def load_interviewers(): return db_handler.get_interviewers() #
+    def load_interviewers(): return db_handler.get_interviewers()
     @st.cache_data(ttl=300)
     def load_interviews(applicant_id): return db_handler.get_interviews_for_applicant(applicant_id) 
     @st.cache_data(ttl=300)
@@ -184,18 +184,24 @@ def run_app():
             st.error("**Process Ended: Applicant Rejected**", icon="✖️")
     
         stage_names = list(pipeline_stages.keys())
+        if "Hired" in stage_names:
+            stage_names.remove("Hired")
+            stage_names.append("Hired")
         if "Rejected" in stage_names:
             stage_names.remove("Rejected")
             stage_names.append("Rejected")
-
+            
         current_stage_index = (
             stage_names.index(current_status) if current_status in stage_names else -1
         )
         num_stages = len(stage_names)
+        
         column_widths = [
             3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)
         ]
         
+        if not column_widths: return
+
         cols = st.columns(column_widths)
     
         for i, stage_name in enumerate(stage_names):
@@ -311,14 +317,14 @@ def run_app():
         if st.button("🔄 Refresh All Data", use_container_width=True): st.cache_data.clear(); st.rerun()
 
         with st.expander("📂 Recent Exports"):
-            logs = db_handler.fetch_export_logs() #
+            logs = db_handler.fetch_export_logs()
             if logs.empty:
                 st.info("No exports have been made yet.")
             for _, log in logs.iterrows(): 
                 col1, col2 = st.columns([4, 1])
                 col1.markdown(f"• [{log['file_name']}]({log['sheet_url']})", unsafe_allow_html=True)
                 if col2.button("🗑️", key=f"delete_log_{log['id']}", help="Delete this export log"):
-                    db_handler.delete_export_log(log['id']) #
+                    db_handler.delete_export_log(log['id'])
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
 
@@ -330,9 +336,9 @@ def run_app():
                 if st.button("Import from Sheet"):
                     if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
                         with st.spinner("Reading & Importing from Google Sheet..."):
-                            data = sheets_updater.read_sheet_data(sid.group(1)) #
+                            data = sheets_updater.read_sheet_data(sid.group(1))
                             if isinstance(data, pd.DataFrame) and not data.empty:
-                                inserted, skipped = importer._process_dataframe(data) #
+                                inserted, skipped = importer._process_dataframe(data)
                                 st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
                             else: st.error(f"Could not read data from sheet. {data}")
                     else: st.warning("Please provide a valid Google Sheet URL.")
@@ -342,7 +348,7 @@ def run_app():
                 if uploaded_file is not None:
                     if st.button("Import from File"):
                         with st.spinner("Processing file and importing..."):
-                            status_msg, count = importer.import_from_local_file(uploaded_file) #
+                            status_msg, count = importer.import_from_local_file(uploaded_file)
                             st.success(status_msg)
                             if count > 0: st.cache_data.clear(); st.rerun()
 
@@ -351,7 +357,7 @@ def run_app():
                 if st.button("Import from Resume URL"):
                     if resume_link:
                         with st.spinner("Analyzing resume and creating profile..."):
-                            applicant_id = importer.import_from_resume(resume_link) #
+                            applicant_id = importer.import_from_resume(resume_link)
                             if applicant_id:
                                 st.success(f"Successfully imported applicant. New ID: {applicant_id}")
                                 st.cache_data.clear(); st.rerun()
@@ -363,7 +369,7 @@ def run_app():
                 if uploaded_resume:
                     if st.button("Import from Resume File"):
                         with st.spinner("Analyzing resume and creating profile..."):
-                            applicant_id = importer.import_from_local_resume(uploaded_resume) #
+                            applicant_id = importer.import_from_local_resume(uploaded_resume)
                             if applicant_id:
                                 st.success(f"Successfully imported applicant. New ID: {applicant_id}")
                                 st.cache_data.clear(); st.rerun()
@@ -387,7 +393,7 @@ def run_app():
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             
-            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2]); 
+            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2]);
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
@@ -401,7 +407,8 @@ def run_app():
             
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
+                # MODIFIED: Added a hidden label to checkbox to fix accessibility warning.
+                is_selected = row_cols[0].checkbox(label=f"Select applicant {row['Name']}", value=st.session_state.get(f"select_{row['Id']}", False), key=f"select_{row['Id']}", label_visibility="hidden")
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
                 row_cols[2].text(row['Role'])
@@ -421,15 +428,15 @@ def run_app():
                             export_df = df_all[df_all['Id'].isin(selected_ids)].copy()
                             export_df['Feedback'] = export_df['Feedback'].apply(format_feedback_for_export)
                             cols = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
-                            res = sheets_updater.create_export_sheet(export_df[cols].to_dict('records'), cols) #
-                            if res: db_handler.insert_export_log(res['title'], res['url']); st.success("Export successful!"); st.rerun() #
+                            res = sheets_updater.create_export_sheet(export_df[cols].to_dict('records'), cols)
+                            if res: db_handler.insert_export_log(res['title'], res['url']); st.success("Export successful!"); st.rerun()
                             else: st.error("Export failed.")
                     if st.button(f"Delete {len(selected_ids)} Applicant(s)", type="primary", use_container_width=True): st.session_state.confirm_delete = True
                     if st.session_state.confirm_delete:
                         st.warning("This is permanent. Are you sure?", icon="⚠️")
                         c1, c2 = st.columns(2);
                         if c1.button("✅ Yes, Delete", use_container_width=True, type="primary"):
-                            if db_handler.delete_applicants(selected_ids): st.success("Applicants deleted."); st.session_state.confirm_delete = False; st.cache_data.clear(); st.rerun() #
+                            if db_handler.delete_applicants(selected_ids): st.success("Applicants deleted."); st.session_state.confirm_delete = False; st.cache_data.clear(); st.rerun()
                             else: st.error("Deletion failed.")
                         if c2.button("❌ Cancel", use_container_width=True): st.session_state.confirm_delete = False; st.rerun()
 
@@ -467,7 +474,7 @@ def run_app():
                             idx = status_list.index(applicant['Status']) if applicant['Status'] in status_list else 0
                             new_status = st.selectbox("New Status", options=status_list, index=idx, label_visibility="collapsed")
                             if st.form_submit_button("Save Status", use_container_width=True):
-                                if db_handler.update_applicant_status(applicant_id, new_status): st.success("Status Updated!"); st.cache_data.clear(); st.rerun() #
+                                if db_handler.update_applicant_status(applicant_id, new_status): st.success("Status Updated!"); st.cache_data.clear(); st.rerun()
                                 else: st.error("Update failed.")
                         st.divider()
                         st.markdown("**Interview Management**")
@@ -486,7 +493,7 @@ def run_app():
                                     if st.form_submit_button("Find Times", use_container_width=True):
                                         st.session_state[f'schedule_interviewer_{applicant_id}'] = opts[interviewer_display]
                                         st.session_state[f'schedule_duration_{applicant_id}'] = duration
-                                        with st.spinner("Finding open slots..."): st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration) #
+                                        with st.spinner("Finding open slots..."): st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration)
                                         if not st.session_state.get(f'available_slots_{applicant_id}'): st.warning("No available slots found.")
                                 if st.session_state.get(f'available_slots_{applicant_id}'):
                                     slots = st.session_state[f'available_slots_{applicant_id}']; slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
@@ -496,10 +503,10 @@ def run_app():
                                         if st.form_submit_button("✅ Confirm & Book", use_container_width=True):
                                             start_time = slot_options[final_slot_str]; end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
                                             interviewer_email = st.session_state[f'schedule_interviewer_{applicant_id}']
-                                            event = calendar_handler.create_calendar_event(applicant['Name'], applicant['Email'], interviewer_email, start_time, end_time, desc) #
+                                            event = calendar_handler.create_calendar_event(applicant['Name'], applicant['Email'], interviewer_email, start_time, end_time, desc)
                                             if event:
                                                 i_id = interviewer_list[interviewer_list['email'] == interviewer_email].iloc[0]['id']
-                                                db_handler.log_interview(applicant_id, i_id, event['summary'], start_time, end_time, event['id']) #
+                                                db_handler.log_interview(applicant_id, i_id, event['summary'], start_time, end_time, event['id'])
                                                 
                                                 st.session_state.booking_success_message = f"✅ Interview confirmed with {applicant['Name']} for {final_slot_str}."
                                                 for key in list(st.session_state.keys()):
@@ -520,7 +527,7 @@ def run_app():
                                 notes.append(new_note)
                                 for note in notes:
                                     if isinstance(note['timestamp'], datetime.datetime): note['timestamp'] = note['timestamp'].isoformat()
-                                if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)): st.success("Note saved!"); st.cache_data.clear(); st.rerun() #
+                                if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)): st.success("Note saved!"); st.cache_data.clear(); st.rerun()
                                 else: st.error("Failed to save note.")
                             else: st.warning("Note cannot be empty.")
                     st.divider()
@@ -549,11 +556,11 @@ def run_app():
                                 with st.spinner("Sending..."):
                                     thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
                                     
-                                    msg = email_handler.send_email(applicant['Email'], subject, email_body_content, thread_id, attachment=uploaded_file) #
+                                    msg = email_handler.send_email(applicant['Email'], subject, email_body_content, thread_id, attachment=uploaded_file)
                                     
                                     if msg:
                                         st.success("Email sent successfully!")
-                                        db_handler.insert_communication({ #
+                                        db_handler.insert_communication({
                                             "applicant_id": applicant_id, 
                                             "gmail_message_id": msg['id'], 
                                             "sender": "HR (Sent from App)", 
@@ -563,7 +570,7 @@ def run_app():
                                         })
 
                                         if not thread_id and msg.get('threadId'):
-                                            db_handler.update_applicant_thread_id(applicant_id, msg['threadId']) #
+                                            db_handler.update_applicant_thread_id(applicant_id, msg['threadId'])
 
                                         st.cache_data.clear()
                                         st.rerun()
@@ -589,19 +596,19 @@ def run_app():
             with st.form("new_status_form", clear_on_submit=True):
                 new_status = st.text_input("Add New Status", label_visibility="collapsed")
                 if st.form_submit_button("Add Status", use_container_width=True):
-                    if new_status and db_handler.add_status(new_status): st.success(f"Status '{new_status}' added."); st.cache_data.clear(); st.rerun() #
+                    if new_status and db_handler.add_status(new_status): st.success(f"Status '{new_status}' added."); st.cache_data.clear(); st.rerun()
                     else: st.warning(f"Status '{new_status}' may already exist.")
         with col_interviewer:
             st.subheader("Interviewers")
             for _, interviewer in interviewer_list.iterrows():
                 c1, c2 = st.columns([4, 1]); c1.text(f"{interviewer['name']} ({interviewer['email']})")
                 if c2.button("🗑️", key=f"del_interviewer_{interviewer['id']}"):
-                    if db_handler.delete_interviewer(interviewer['id']): st.success("Interviewer deleted."); st.cache_data.clear(); st.rerun() #
+                    if db_handler.delete_interviewer(interviewer['id']): st.success("Interviewer deleted."); st.cache_data.clear(); st.rerun()
                     else: st.error("Could not delete interviewer.")
             with st.form("new_interviewer_form", clear_on_submit=True):
                 st.write("Add New Interviewer"); name = st.text_input("Name"); email = st.text_input("Google Account Email")
                 if st.form_submit_button("Add Interviewer", use_container_width=True):
-                    if name and email and db_handler.add_interviewer(name, email): st.success("Interviewer added."); st.cache_data.clear(); st.rerun() #
+                    if name and email and db_handler.add_interviewer(name, email): st.success("Interviewer added."); st.cache_data.clear(); st.rerun()
                     else: st.warning("Please provide name and a unique email.")
         st.subheader("🔴 Danger Zone")
         with st.expander("Reset Application Data"):
@@ -619,9 +626,9 @@ def run_app():
                 
                 if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
                     with st.spinner("Deleting all data and resetting tables..."):
-                        if db_handler.clear_all_tables(): #
+                        if db_handler.clear_all_tables():
                             st.success("Database cleared successfully.")
-                            db_handler.create_tables() #
+                            db_handler.create_tables()
                             st.info("Application tables have been reset.")
                             st.session_state.confirm_delete_db = False
                             st.cache_data.clear()
@@ -633,38 +640,40 @@ def run_app():
 
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
-    # Check if we are in the middle of an OAuth flow
     if 'code' in st.query_params:
         try:
-            # Grab the authorization code from the URL
-            auth_code = st.query_params['code']
-            
-            # Important: Clear the query params from the URL.
-            # This prevents the "invalid_grant" error on page refresh.
-            st.query_params.clear()
-
-            # Exchange the code for credentials
+            # Exchange the authorization code for a credentials object.
             flow = create_flow()
-            flow.fetch_token(code=auth_code)
+            flow.fetch_token(code=st.query_params['code'])
 
-            # Store credentials and user info in the session state
+            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
 
-            # Rerun the app to enter the main application logic
-            st.rerun()
+            # Use a JavaScript redirect to clear the URL parameters.
+            # This is the most reliable method for deployed apps in iframes.
+            # It redirects the entire browser window (window.top) to the clean URL.
+            try:
+                with open('credentials.json'):
+                    redirect_uri = "http://localhost:8501"
+            except FileNotFoundError:
+                redirect_uri = st.secrets["REDIRECT_URI"]
+
+            st.components.v1.html(
+                f'<script>window.top.location.href = "{redirect_uri}";</script>',
+                height=0
+            )
         except Exception as e:
             st.error(f"Error during authentication: {e}")
-            st.stop()
     else:
-        # Show the login page
+        # Show the login page if no code is in the URL.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # If credentials already exist, run the main app
+    # If credentials exist, run the main app.
     run_app()
