@@ -378,7 +378,7 @@ def run_app():
                     st.success(st.session_state.booking_success_message)
                     del st.session_state.booking_success_message
                 
-                st.header(f"Profile: {applicant['Name']}")
+                st.header(f"{applicant['Name']}")
                 st.markdown(f"**Applying for:** `{applicant['Domain']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
