@@ -125,7 +125,6 @@ class DatabaseHandler:
         
         try:
             with self.conn.cursor() as cur:
-                # Standardize email to prevent duplicates
                 email = applicant_data.get("Email", "").strip().lower() if applicant_data.get("Email") else None
                 if not email:
                     logger.warning(f"Skipping applicant with no email: {applicant_data.get('Name')}")
@@ -251,10 +250,7 @@ class DatabaseHandler:
                 logger.error(f"Fallback query also failed: {fallback_e}")
                 return pd.DataFrame()
 
-    def insert_bulk_applicants(self, applicants_df):
-        from modules.importer import Importer
-        importer = Importer(None)
-        return importer._process_dataframe(applicants_df)
+    # The insert_bulk_applicants method is removed from here.
     
     def log_interview(self, applicant_id, interviewer_id, title, start_time, end_time, event_id):
         self._connect();
