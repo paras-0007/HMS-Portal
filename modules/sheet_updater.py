@@ -68,6 +68,7 @@ class SheetsUpdater:
             # Prepare the data for writing 
             values_to_write = [columns]
             for applicant in data_to_export:
+                # MODIFIED: Changed .get keys to 'Resume' and 'Role' to match new format.
                 row = [
                     applicant.get('Name', ''),
                     applicant.get('Email', ''),
