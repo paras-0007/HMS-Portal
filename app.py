@@ -31,12 +31,10 @@ def create_flow():
     and a local credentials.json file for development.
     """
     try:
-        # Local development: use credentials.json
         with open('credentials.json') as f:
             client_config = json.load(f)
         redirect_uri = "http://localhost:8501"
     except FileNotFoundError:
-        # Deployed on Streamlit Cloud: use st.secrets
         client_config = {
             "web": {
                 "client_id": st.secrets["GOOGLE_CLIENT_ID"],
@@ -55,6 +53,7 @@ def create_flow():
         'openid',
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/gmail.send',
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/calendar'
@@ -77,18 +76,15 @@ def run_app():
     def logout():
         if 'credentials' in st.session_state:
             try:
-                # Revoke the token on Google's side
                 requests.post('https://oauth2.googleapis.com/revoke',
                     params={'token': st.session_state.credentials.token},
                     headers={'content-type': 'application/x-www-form-urlencoded'})
             except Exception as e:
                 st.error(f"Failed to revoke token: {e}")
 
-        # Clear all items from the session state
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         
-        # Rerun to force a reload to the login page
         st.rerun()
     
     credentials = st.session_state.credentials
@@ -129,6 +125,8 @@ def run_app():
     def load_interviews(applicant_id): return db_handler.get_interviews_for_applicant(applicant_id)
     @st.cache_data(ttl=300)
     def load_status_history(applicant_id): return db_handler.get_status_history(applicant_id)
+    @st.cache_data(ttl=10) # Lower TTL for conversations as they change frequently
+    def load_conversations(applicant_id): return db_handler.get_conversations(applicant_id)
 
     # --- Callbacks and UI Functions ---
     def set_detail_view(applicant_id):
@@ -237,7 +235,7 @@ def run_app():
         df_all = load_all_applicants()
         df_filtered = df_all.copy()
         
-        search_query = st.text_input("Search by Name or Email")
+        search_query = st.text_input("Search by Name or Email" , placeholder="e.g Paras Kaushik ")
         if search_query:
             df_filtered = df_filtered[df_filtered['Name'].str.contains(search_query, case=False, na=False) | df_filtered['Email'].str.contains(search_query, case=False, na=False)]
         
@@ -305,7 +303,7 @@ def run_app():
     # --- Main Page UI ---
     st.title("HR Applicant Dashboard")
     df_all = load_all_applicants()
-    st.markdown(f"### Displaying Applicants: {len(df_filtered)} of {len(df_all)}")
+    st.markdown(f"### Displaying Applicants: {len(df_all)}")
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
@@ -331,7 +329,7 @@ def run_app():
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             with st.sidebar:
                 st.divider(); st.header("🔥 Actions on Selected")
-                if not selected_ids: st.info("Select applicants from the grid.")
+                if not selected_ids: st.info("Select applicants from the dashboard.")
                 else:
                     st.success(f"**{len(selected_ids)} applicant(s) selected.**")
                     if st.button(f"Export {len(selected_ids)} to Sheet", use_container_width=True):
@@ -409,7 +407,7 @@ def run_app():
                                     slots = st.session_state[f'available_slots_{applicant_id}']; slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
                                     with st.form(f"booking_form_{applicant_id}"):
                                         final_slot_str = st.selectbox("Confirmed Time:", options=list(slot_options.keys()))
-                                        desc = st.text_area("Description:", placeholder="First round technical interview for the Full Stack Developer role.")
+                                        desc = st.text_area("Description:", placeholder="First round technical interview.")
                                         if st.form_submit_button("✅ Confirm & Book", use_container_width=True):
                                             start_time = slot_options[final_slot_str]; end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
                                             interviewer_email = st.session_state[f'schedule_interviewer_{applicant_id}']
@@ -443,28 +441,57 @@ def run_app():
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
                 with tab_comms:
-                    st.subheader("Communication Hub")
+                    st.subheader("Email Hub")
+                    conversations = load_conversations(applicant_id)
                     with st.container(height=300):
-                        conversations = db_handler.get_conversations(applicant_id)
                         if conversations.empty: st.info("No communication history found for this applicant.")
                         else:
                             for _, comm in conversations.iterrows():
                                 with st.chat_message("user" if comm['direction'] == 'Incoming' else "assistant"):
                                     st.markdown(f"**From:** {comm['sender']}<br>**Subject:** {comm.get('subject', 'N/A')}<hr>{comm['body']}", unsafe_allow_html=True)
+                    
                     with st.form(f"email_form_{applicant_id}"):
-                        content = st_quill(value=f"Dear {applicant['Name']},\n\n", html=True)
-                        uploaded_file = st.file_uploader("Attach a file (PDF, DOCX, Image)", type=['pdf', 'docx', 'jpg', 'jpeg', 'png'])
+                        email_body_content = st_quill(value=f"Dear {applicant['Name']},\n\n", html=True, key=f"quill_{applicant_id}")
+                        uploaded_file = st.file_uploader("Attach a file", type=['pdf', 'docx', 'jpg', 'png'])
                         
-                        if st.form_submit_button("Send Email", use_container_width=True):
-                            if content and len(content) > 15:
+                        # Disable form if applicant has no email
+                        disable_form = not applicant['Email'] or pd.isna(applicant['Email'])
+                        if disable_form:
+                            st.warning("Cannot send email: Applicant has no email address.")
+
+                        if st.form_submit_button("Send Email", use_container_width=True, disabled=disable_form):
+                            if email_body_content and len(email_body_content) > 15:
                                 subject = f"Re: Your application for {applicant['Domain']}"
                                 with st.spinner("Sending..."):
-                                    msg = email_handler.send_email(applicant['Email'], subject, content, applicant['GmailThreadId'], attachment=uploaded_file)
+                                    # Use the existing thread_id if available, otherwise it will be None
+                                    thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
+                                    
+                                    msg = email_handler.send_email(applicant['Email'], subject, email_body_content, thread_id, attachment=uploaded_file)
+                                    
                                     if msg:
-                                        db_handler.insert_communication({"applicant_id": applicant_id, "gmail_message_id": msg['id'], "sender": "HR", "subject": subject, "body": content, "direction": "Outgoing"})
-                                        st.success("Email sent!"); st.rerun()
-                                    else: st.error("Failed to send email.")
-                            else: st.warning("Email body is too short.")
+                                        st.success("Email sent successfully!")
+                                        # Log this outgoing email to our database
+                                        db_handler.insert_communication({
+                                            "applicant_id": applicant_id, 
+                                            "gmail_message_id": msg['id'], 
+                                            "sender": "HR (Sent from App)", 
+                                            "subject": subject, 
+                                            "body": email_body_content, 
+                                            "direction": "Outgoing"
+                                        })
+
+                                        # If there was no thread_id before, update the applicant record with the new one
+                                        if not thread_id and msg.get('threadId'):
+                                            db_handler.update_applicant_thread_id(applicant_id, msg['threadId'])
+
+                                        # Clear caches to show the new message and rerun
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to send email.")
+                            else:
+                                st.warning("Email body is too short.")
+
     with main_tab2:
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
@@ -541,7 +568,7 @@ if 'credentials' not in st.session_state:
     else:
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-        st.title("Welcome to the HMS")
+        st.title("Welcome to the HMS Automation System")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
