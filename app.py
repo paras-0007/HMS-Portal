@@ -321,7 +321,7 @@ def run_app():
                     st.rerun()
 
         with st.expander("📥 Import Applicants"):
-            import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
+            import_option = st.selectbox("Choose import method:", ["Local file (CSV/Excel)", "Google Sheet link", "Single resume URL", "Single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
                 sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
