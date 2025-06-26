@@ -77,10 +77,8 @@ def run_app():
         Handles the logout process by revoking the Google token, clearing the session,
         and cleaning the URL to ensure a fresh login state.
         """
-        # Attempt to revoke the token, but don't block logout if it fails
         if 'credentials' in st.session_state:
             creds = st.session_state.credentials
-            # Prioritize revoking the refresh token as it invalidates the entire grant
             token_to_revoke = creds.refresh_token or creds.token
             if token_to_revoke:
                 try:
@@ -88,18 +86,14 @@ def run_app():
                         params={'token': token_to_revoke},
                         headers={'content-type': 'application/x-www-form-urlencoded'})
                 except Exception:
-                    # Silently pass if revocation fails (e.g., token already expired)
                     pass
 
-        # Clear all items from the session state for a clean slate
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         
-        # Clear the query parameters from the URL
         if 'code' in st.query_params:
             st.query_params.clear()
         
-        # Rerun the app. With a clear session and URL, it will show the login page.
         st.rerun()
     
     credentials = st.session_state.credentials
@@ -122,7 +116,6 @@ def run_app():
     @st.cache_data(ttl=300)
     def load_all_applicants():
         df = db_handler.fetch_applicants_as_df()
-        # MODIFIED: Renamed 'domain' to 'Role' and 'cv_url' to 'Resume' for frontend use.
         rename_map = {
             'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
             'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
@@ -187,14 +180,10 @@ def run_app():
                 datetime.timezone.utc
             )
     
-        # -------- Rejected status handling (updated) --------
-        # Show error banner but keep rendering the tracker.
         if current_status == "Rejected":
             st.error("**Process Ended: Applicant Rejected**", icon="✖️")
-        # ----------------------------------------------------
     
         stage_names = list(pipeline_stages.keys())
-        # Ensure “Rejected” is always shown last, if present.
         if "Rejected" in stage_names:
             stage_names.remove("Rejected")
             stage_names.append("Rejected")
@@ -218,7 +207,7 @@ def run_app():
     
                 if stage_name == "Hired":
                     icon, color, weight = ("🎉", "green", "bold")
-                if stage_name == "Rejected":  # new styling for Rejected
+                if stage_name == "Rejected":  
                     icon, color, weight = ("✖️", "#FF4B4B", "bold")
     
                 timestamp = pipeline_stages.get(stage_name)
@@ -310,7 +299,6 @@ def run_app():
         if status_filter != 'All': df_filtered = df_filtered[df_filtered['Status'] == status_filter]
         
         domain_options = ['All']
-        # MODIFIED: Changed 'Domain' to 'Role' for filtering.
         if not df_all.empty and 'Role' in df_all.columns:
             domain_options.extend(sorted(df_all['Role'].dropna().unique().tolist()))
         domain_filter = st.selectbox("Filter by Role:", options=domain_options)
@@ -320,7 +308,6 @@ def run_app():
         st.divider()
         if st.button("🔄 Refresh All Data", use_container_width=True): st.cache_data.clear(); st.rerun()
 
-        # MODIFIED: Separated Imports and Exports into their own expanders.
         with st.expander("📂 Recent Exports"):
             logs = db_handler.fetch_export_logs()
             if logs.empty:
@@ -334,7 +321,6 @@ def run_app():
                     st.rerun()
 
         with st.expander("📥 Import Applicants"):
-            # MODIFIED: Added option for single resume file upload.
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
@@ -370,7 +356,6 @@ def run_app():
                             else: st.error("Failed to import from resume link.")
                     else: st.warning("Please provide a resume URL.")
             
-            # ADDED: Logic for importing a single resume file from local system.
             elif import_option == "From single resume file (PDF/DOCX)":
                 uploaded_resume = st.file_uploader("Upload a single resume", type=['pdf', 'docx'])
                 if uploaded_resume:
@@ -400,7 +385,6 @@ def run_app():
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             
-            # MODIFIED: Column headers updated to Role. [cite: 57]
             header_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
             header_cols[0].markdown("** **")
             header_cols[1].markdown("**Name**")
@@ -413,22 +397,20 @@ def run_app():
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             
-            # MODIFIED: Grid view layout improved for better alignment. 
-            # FIX: Removed hardcoded top margin from markdown and added vertical alignment to columns.
             for _, row in df_display.iterrows():
                 row_cols = st.columns((0.5, 3, 2, 1.5, 2, 1.5, 2))
                 with row_cols[0]:
-                    # The checkbox is vertically centered by default with other widgets in the row.
                     is_selected = st.checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False), label_visibility="hidden")
-                if is_selected: selected_ids.append(int(row['Id'])) [cite: 60]
-
-                # By removing the manual `margin-top`, elements align correctly.
-                row_cols[1].markdown(f"<b>{row['Name']}</b>", unsafe_allow_html=True) [cite: 60]
-                row_cols[2].markdown(f"{row['Role']}") [cite: 60]
-                row_cols[3].markdown(f"{row['Status']}") [cite: 60]
-                row_cols[4].markdown(f"{pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y')}") [cite: 60]
-                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A" [cite: 61]
-                row_cols[5].markdown(f"{last_action_str}") [cite: 61]
+                if is_selected: 
+                    selected_ids.append(int(row['Id']))
+                
+                # The markdown no longer has the custom margins, allowing default vertical alignment.
+                row_cols[1].markdown(f"<b>{row['Name']}</b>", unsafe_allow_html=True)
+                row_cols[2].markdown(f"{row.get('Role', 'N/A')}")
+                row_cols[3].markdown(f"{row.get('Status', 'N/A')}")
+                row_cols[4].markdown(f"{pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y')}")
+                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
+                row_cols[5].markdown(last_action_str)
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             
             with st.sidebar:
