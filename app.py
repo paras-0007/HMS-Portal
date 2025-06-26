@@ -77,10 +77,8 @@ def run_app():
         Handles the logout process by revoking the Google token, clearing the session,
         and cleaning the URL to ensure a fresh login state.
         """
-        # Attempt to revoke the token, but don't block logout if it fails
         if 'credentials' in st.session_state:
             creds = st.session_state.credentials
-            # Prioritize revoking the refresh token as it invalidates the entire grant
             token_to_revoke = creds.refresh_token or creds.token
             if token_to_revoke:
                 try:
@@ -88,18 +86,14 @@ def run_app():
                         params={'token': token_to_revoke},
                         headers={'content-type': 'application/x-www-form-urlencoded'})
                 except Exception:
-                    # Silently pass if revocation fails (e.g., token already expired)
                     pass
 
-        # Clear all items from the session state for a clean slate
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         
-        # Clear the query parameters from the URL
         if 'code' in st.query_params:
             st.query_params.clear()
         
-        # Rerun the app. With a clear session and URL, it will show the login page.
         st.rerun()
     
     credentials = st.session_state.credentials
@@ -122,7 +116,6 @@ def run_app():
     @st.cache_data(ttl=300)
     def load_all_applicants():
         df = db_handler.fetch_applicants_as_df() #
-        # MODIFIED: Renamed 'domain' to 'Role' and 'cv_url' to 'Resume' for frontend use.
         rename_map = {
             'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
             'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
@@ -138,11 +131,11 @@ def run_app():
     @st.cache_data(ttl=3600)
     def load_interviewers(): return db_handler.get_interviewers() #
     @st.cache_data(ttl=300)
-    def load_interviews(applicant_id): return db_handler.get_interviews_for_applicant(applicant_id) #
+    def load_interviews(applicant_id): return db_handler.get_interviews_for_applicant(applicant_id) 
     @st.cache_data(ttl=300)
-    def load_status_history(applicant_id): return db_handler.get_status_history(applicant_id) #
-    @st.cache_data(ttl=10) # Lower TTL for conversations as they change frequently
-    def load_conversations(applicant_id): return db_handler.get_conversations(applicant_id) #
+    def load_status_history(applicant_id): return db_handler.get_status_history(applicant_id) 
+    @st.cache_data(ttl=10) 
+    def load_conversations(applicant_id): return db_handler.get_conversations(applicant_id) 
 
     # --- Callbacks and UI Functions ---
     def set_detail_view(applicant_id):
@@ -186,15 +179,11 @@ def run_app():
             pipeline_stages[current_status] = datetime.datetime.now(
                 datetime.timezone.utc
             )
-    
-        # -------- Rejected status handling (updated) --------
-        # Show error banner but keep rendering the tracker.
+   
         if current_status == "Rejected":
             st.error("**Process Ended: Applicant Rejected**", icon="✖️")
-        # ----------------------------------------------------
     
         stage_names = list(pipeline_stages.keys())
-        # Ensure “Rejected” is always shown last, if present.
         if "Rejected" in stage_names:
             stage_names.remove("Rejected")
             stage_names.append("Rejected")
@@ -218,7 +207,7 @@ def run_app():
     
                 if stage_name == "Hired":
                     icon, color, weight = ("🎉", "green", "bold")
-                if stage_name == "Rejected":  # new styling for Rejected
+                if stage_name == "Rejected":  
                     icon, color, weight = ("✖️", "#FF4B4B", "bold")
     
                 timestamp = pipeline_stages.get(stage_name)
@@ -310,7 +299,6 @@ def run_app():
         if status_filter != 'All': df_filtered = df_filtered[df_filtered['Status'] == status_filter]
         
         domain_options = ['All']
-        # MODIFIED: Changed 'Domain' to 'Role' for filtering.
         if not df_all.empty and 'Role' in df_all.columns:
             domain_options.extend(sorted(df_all['Role'].dropna().unique().tolist()))
         domain_filter = st.selectbox("Filter by Role:", options=domain_options)
@@ -320,7 +308,6 @@ def run_app():
         st.divider()
         if st.button("🔄 Refresh All Data", use_container_width=True): st.cache_data.clear(); st.rerun()
 
-        # MODIFIED: Separated Imports and Exports into their own expanders.
         with st.expander("📂 Recent Exports"):
             logs = db_handler.fetch_export_logs() #
             if logs.empty:
@@ -334,7 +321,6 @@ def run_app():
                     st.rerun()
 
         with st.expander("📥 Import Applicants"):
-            # MODIFIED: Added option for single resume file upload.
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
@@ -370,7 +356,6 @@ def run_app():
                             else: st.error("Failed to import from resume link.")
                     else: st.warning("Please provide a resume URL.")
             
-            # ADDED: Logic for importing a single resume file from local system.
             elif import_option == "From single resume file (PDF/DOCX)":
                 uploaded_resume = st.file_uploader("Upload a single resume", type=['pdf', 'docx'])
                 if uploaded_resume:
@@ -400,9 +385,8 @@ def run_app():
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             
-            # MODIFIED: Column headers updated to Role.
             header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2]); 
-            header_cols[0].markdown("** **")
+            header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
             header_cols[3].markdown("**Status**")
@@ -413,7 +397,6 @@ def run_app():
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             
-            # MODIFIED: Grid view rendering reverted to original stable version.
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
@@ -435,7 +418,6 @@ def run_app():
                         with st.spinner("Generating Google Sheet..."):
                             export_df = df_all[df_all['Id'].isin(selected_ids)].copy()
                             export_df['Feedback'] = export_df['Feedback'].apply(format_feedback_for_export)
-                            # MODIFIED: Columns for export updated to Resume and Role.
                             cols = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
                             res = sheets_updater.create_export_sheet(export_df[cols].to_dict('records'), cols) #
                             if res: db_handler.insert_export_log(res['title'], res['url']); st.success("Export successful!"); st.rerun() #
@@ -464,7 +446,6 @@ def run_app():
                     del st.session_state.booking_success_message
                 
                 st.header(f"{applicant['Name']}")
-                # MODIFIED: Changed 'Domain' to 'Role'
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
@@ -473,10 +454,8 @@ def run_app():
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
-                        # MODIFIED: Changed to use 'Resume' column and updated label
                         st.link_button("📄 View Resume on Drive", url=applicant['Resume'] or "#", use_container_width=True, disabled=not applicant['Resume'])
                         st.markdown("**Education**"); st.write(applicant['Education'] or "No details.")
-                        # MODIFIED: Added divider for better visual separation.
                         st.divider() 
                         st.markdown("**Job History**"); st.markdown(applicant['JobHistory'] or "No details.", unsafe_allow_html=True)
                     with col2:
@@ -558,24 +537,20 @@ def run_app():
                         email_body_content = st_quill(value=f"Dear {applicant['Name']},\n\n", html=True, key=f"quill_{applicant_id}")
                         uploaded_file = st.file_uploader("Attach a file", type=['pdf', 'docx', 'jpg', 'png'])
                         
-                        # Disable form if applicant has no email
                         disable_form = not applicant['Email'] or pd.isna(applicant['Email'])
                         if disable_form:
                             st.warning("Cannot send email: Applicant has no email address.")
 
                         if st.form_submit_button("Send Email", use_container_width=True, disabled=disable_form):
                             if email_body_content and len(email_body_content) > 15:
-                                # MODIFIED: Changed 'Domain' to 'Role'
                                 subject = f"Re: Your application for {applicant['Role']}"
                                 with st.spinner("Sending..."):
-                                    # Use the existing thread_id if available, otherwise it will be None
                                     thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
                                     
                                     msg = email_handler.send_email(applicant['Email'], subject, email_body_content, thread_id, attachment=uploaded_file) #
                                     
                                     if msg:
                                         st.success("Email sent successfully!")
-                                        # Log this outgoing email to our database
                                         db_handler.insert_communication({ #
                                             "applicant_id": applicant_id, 
                                             "gmail_message_id": msg['id'], 
@@ -585,11 +560,9 @@ def run_app():
                                             "direction": "Outgoing"
                                         })
 
-                                        # If there was no thread_id before, update the applicant record with the new one
                                         if not thread_id and msg.get('threadId'):
                                             db_handler.update_applicant_thread_id(applicant_id, msg['threadId']) #
 
-                                        # Clear caches to show the new message and rerun
                                         st.cache_data.clear()
                                         st.rerun()
                                     else:
@@ -608,7 +581,7 @@ def run_app():
                 c1, c2 = st.columns([4, 1]); c1.write(status)
                 if status not in ["New", "Hired", "Rejected"]:
                     if c2.button("🗑️", key=f"del_status_{status}"):
-                        err = db_handler.delete_status(status) #
+                        err = db_handler.delete_status(status) 
                         if err: st.error(err)
                         else: st.success(f"Status '{status}' deleted."); st.cache_data.clear(); st.rerun()
             with st.form("new_status_form", clear_on_submit=True):
