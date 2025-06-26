@@ -632,49 +632,23 @@ def run_app():
 
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
-    # This part of the script runs when the user is not yet authenticated.
     if 'code' in st.query_params:
-        # Step 2: User has been redirected back from Google with an authorization code.
         try:
-            # Exchange the authorization code for a credentials object.
             flow = create_flow()
             flow.fetch_token(code=st.query_params['code'])
-
-            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
-
-            # Step 3: Clear the now-used authorization code from the URL using a JS redirect.
-            # This is the most reliable method to prevent the "invalid_grant" error on refresh.
-            try:
-                # Determine the correct base URL (local vs. deployed)
-                with open('credentials.json') as f:
-                    redirect_uri = "http://localhost:8501"
-            except FileNotFoundError:
-                redirect_uri = st.secrets["REDIRECT_URI"]
-
-            # Use st.components.v1.html to inject the JavaScript redirect.
-            # Let the script run to completion so the session state is saved.
-            st.components.v1.html(
-                f"""
-                <script>
-                    window.location.href = "{redirect_uri}";
-                </script>
-                """,
-                height=0
-            )
+            st.rerun()
         except Exception as e:
             st.error(f"Error during authentication: {e}")
             st.stop()
     else:
-        # Step 1: Show the login page.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # Step 4: User is authenticated, run the main application.
     run_app()
