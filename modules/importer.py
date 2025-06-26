@@ -53,13 +53,14 @@ class Importer:
         cols = {col: col.strip().lower().replace(' ', '_').replace('-', '_') for col in df.columns}
         df = df.rename(columns=cols)
         
-        # Define potential aliases for our target fields
+        # MODIFIED: Added 'resume' and 'role' as aliases for normalization.
         rename_map = {
-            'cv_url': ['cv_url', 'cvurl', 'cv_link', 'resume_url', 'resume_link'],
+            'cv_url': ['cv_url', 'cvurl', 'cv_link', 'resume_url', 'resume_link', 'resume'],
             'job_history': ['job_history', 'jobhistory', 'work_experience'],
             'name': ['name', 'full_name'],
             'email': ['email', 'email_address'],
-            'phone': ['phone', 'phone_number', 'mobile']
+            'phone': ['phone', 'phone_number', 'mobile'],
+            'domain': ['domain', 'role']
         }
 
         # Reverse map for finding the right column in the df
@@ -73,28 +74,31 @@ class Importer:
         df = df.rename(columns=final_cols)
         return df
 
-    def import_from_local_resume_file(self, uploaded_file):
-        """Processes a single, locally uploaded resume file."""
-        temp_file_path = None
+    def import_from_local_file(self, uploaded_file):
         try:
-            temp_dir = "/tmp"
-            os.makedirs(temp_dir, exist_ok=True)
-            temp_file_path = os.path.join(temp_dir, uploaded_file.name)
-            with open(temp_file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            logger.info(f"Temporarily saved uploaded resume to {temp_file_path}")
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(uploaded_file, engine='openpyxl')
+            else:
+                return "Unsupported file format. Please use CSV or Excel.", 0
+            
+            inserted, skipped = self._process_dataframe(df)
+            return f"Import complete! Added: {inserted}, Skipped due to duplicates or errors: {skipped}.", inserted
+        except Exception as e:
+            logger.error(f"Failed to import from local file: {e}", exc_info=True)
+            return f"An error occurred: {e}", 0
 
+    def _process_resume_file(self, temp_file_path):
+        """Helper function to process a resume file from a temporary path."""
+        try:
             resume_text = self.file_processor.extract_text(temp_file_path)
             if not resume_text:
-                logger.error(f"Could not extract text from local resume: {uploaded_file.name}")
-                return None, "Could not extract text from the resume."
-
-            ai_data = self.ai_classifier.extract_info("", "", resume_text)
+                logger.error(f"Could not extract text from resume at {temp_file_path}")
+                return None
             
+            ai_data = self.ai_classifier.extract_info("", "", resume_text)
             drive_url = self.drive_handler.upload_to_drive(temp_file_path)
-            if not drive_url:
-                logger.error(f"Failed to upload resume to Google Drive: {uploaded_file.name}")
-                return None, "Failed to upload the resume to cloud storage."
 
             applicant_data = {
                 'Name': ai_data.get('Name'), 'Email': ai_data.get('Email'),
@@ -102,19 +106,29 @@ class Importer:
                 'JobHistory': ai_data.get('JobHistory'), 'Domain': ai_data.get('Domain', 'Other'),
                 'CV_URL': drive_url, 'Status': 'New'
             }
-            
-            applicant_id = self.db_handler.insert_applicant_and_communication(applicant_data, {})
-            if applicant_id:
-                return applicant_id, f"Successfully imported applicant: {ai_data.get('Name')}"
-            else:
-                return None, f"Failed to import applicant. They may already exist with email: {ai_data.get('Email')}"
-
-        except Exception as e:
-            logger.error(f"Error importing local resume file: {e}", exc_info=True)
-            return None, f"An unexpected error occurred during import: {e}"
+            return self.db_handler.insert_applicant_and_communication(applicant_data, {})
         finally:
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+            if os.path.exists(temp_file_path): os.remove(temp_file_path)
+
+    def import_from_resume(self, resume_url):
+        # MODIFIED: Refactored to use the helper processing function.
+        temp_file_path = self._download_file(resume_url)
+        if not temp_file_path: return None
+        return self._process_resume_file(temp_file_path)
+    
+    # ADDED: New function to handle direct resume file uploads.
+    def import_from_local_resume(self, uploaded_file):
+        """Imports a single applicant from an uploaded resume file (PDF/DOCX)."""
+        try:
+            # Use a unique name to avoid collisions in /tmp
+            temp_file_path = f"/tmp/{uuid.uuid4()}_{uploaded_file.name.replace(' ', '_')}"
+            with open(temp_file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            logger.info(f"Successfully saved uploaded resume to {temp_file_path}")
+            return self._process_resume_file(temp_file_path)
+        except Exception as e:
+            logger.error(f"Failed to import from local resume file: {e}", exc_info=True)
+            return None
 
     def _process_dataframe(self, df):
         df = self._normalize_columns(df)
@@ -125,21 +139,26 @@ class Importer:
             temp_file_path = None
             
             try:
+                # If job history is missing but a resume link exists, enrich the data
                 if pd.isna(row.get('job_history')) and 'cv_url' in df.columns and pd.notna(row.get('cv_url')):
                     temp_file_path = self._download_file(row['cv_url'])
                     if temp_file_path:
+                        # Upload our own copy to Drive for persistence
                         drive_url = self.drive_handler.upload_to_drive(temp_file_path)
                         applicant_data['CV_URL'] = drive_url
                         
+                        # Extract text and get data from AI
                         resume_text = self.file_processor.extract_text(temp_file_path)
                         ai_data = self.ai_classifier.extract_info("", "", resume_text)
                         
+                        # Fill in any missing data from the AI results
                         for key, value in ai_data.items():
                             db_key = key.lower()
-                            if db_key in ['name', 'phone', 'education', 'jobhistory']:
+                            if db_key in ['name', 'phone', 'education', 'jobhistory']: # Remap AI keys to DB style
                                 db_key = 'job_history' if db_key == 'jobhistory' else db_key
                                 applicant_data[db_key.title()] = applicant_data.get(db_key.title()) or value
 
+                # Standardize keys for the database insert function
                 db_insert_data = {
                     "Name": applicant_data.get('name'),
                     "Email": applicant_data.get('email'),
