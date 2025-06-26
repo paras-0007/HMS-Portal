@@ -73,17 +73,33 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 def run_app():
     def logout():
+        """
+        Handles the logout process by revoking the Google token, clearing the session,
+        and cleaning the URL to ensure a fresh login state.
+        """
+        # Attempt to revoke the token, but don't block logout if it fails
         if 'credentials' in st.session_state:
-            try:
-                requests.post('https://oauth2.googleapis.com/revoke',
-                    params={'token': st.session_state.credentials.token},
-                    headers={'content-type': 'application/x-www-form-urlencoded'})
-            except Exception as e:
-                st.error(f"Failed to revoke token: {e}")
+            creds = st.session_state.credentials
+            # Prioritize revoking the refresh token as it invalidates the entire grant
+            token_to_revoke = creds.refresh_token or creds.token
+            if token_to_revoke:
+                try:
+                    requests.post('https://oauth2.googleapis.com/revoke',
+                        params={'token': token_to_revoke},
+                        headers={'content-type': 'application/x-www-form-urlencoded'})
+                except Exception:
+                    # Silently pass if revocation fails (e.g., token already expired)
+                    pass
 
+        # Clear all items from the session state for a clean slate
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         
+        # Clear the query parameters from the URL
+        if 'code' in st.query_params:
+            st.query_params.clear()
+        
+        # Rerun the app. With a clear session and URL, it will show the login page.
         st.rerun()
     
     credentials = st.session_state.credentials
