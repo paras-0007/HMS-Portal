@@ -633,17 +633,12 @@ def run_app():
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
         try:
-            auth_code = st.query_params['code']
-            st.query_params.clear()
-
             flow = create_flow()
-            flow.fetch_token(code=auth_code)
-
+            flow.fetch_token(code=st.query_params['code'])
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
-
             st.rerun()
         except Exception as e:
             st.error(f"Error during authentication: {e}")
