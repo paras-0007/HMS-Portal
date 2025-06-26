@@ -174,82 +174,82 @@ def run_app():
         return "\n---\n\n".join([f"Note for '{n['stage']}' ({n['timestamp'].astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b-%Y %I:%M %p')}):\n{n['note']}\n" for n in sorted_notes])
 
     def render_dynamic_journey_tracker(status_history_df, current_status):
-    if status_history_df.empty and current_status == "New":
-        pipeline_stages = {"New": datetime.datetime.now(datetime.timezone.utc)}
-    else:
-        pipeline_stages = {
-            row["status_name"]: row["changed_at"]
-            for _, row in status_history_df.iterrows()
-        }
-
-    if current_status not in pipeline_stages:
-        pipeline_stages[current_status] = datetime.datetime.now(
-            datetime.timezone.utc
+        if status_history_df.empty and current_status == "New":
+            pipeline_stages = {"New": datetime.datetime.now(datetime.timezone.utc)}
+        else:
+            pipeline_stages = {
+                row["status_name"]: row["changed_at"]
+                for _, row in status_history_df.iterrows()
+            }
+    
+        if current_status not in pipeline_stages:
+            pipeline_stages[current_status] = datetime.datetime.now(
+                datetime.timezone.utc
+            )
+    
+        # -------- Rejected status handling (updated) --------
+        # Show error banner but keep rendering the tracker.
+        if current_status == "Rejected":
+            st.error("**Process Ended: Applicant Rejected**", icon="✖️")
+        # ----------------------------------------------------
+    
+        stage_names = list(pipeline_stages.keys())
+        # Ensure “Rejected” is always shown last, if present.
+        if "Rejected" in stage_names:
+            stage_names.remove("Rejected")
+            stage_names.append("Rejected")
+    
+        current_stage_index = (
+            stage_names.index(current_status) if current_status in stage_names else -1
         )
-
-    # -------- Rejected status handling (updated) --------
-    # Show error banner but keep rendering the tracker.
-    if current_status == "Rejected":
-        st.error("**Process Ended: Applicant Rejected**", icon="✖️")
-    # ----------------------------------------------------
-
-    stage_names = list(pipeline_stages.keys())
-    # Ensure “Rejected” is always shown last, if present.
-    if "Rejected" in stage_names:
-        stage_names.remove("Rejected")
-        stage_names.append("Rejected")
-
-    current_stage_index = (
-        stage_names.index(current_status) if current_status in stage_names else -1
-    )
-    num_stages = len(stage_names)
-    column_widths = [
-        3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)
-    ]
-    cols = st.columns(column_widths)
-
-    for i, stage_name in enumerate(stage_names):
-        with cols[i * 2]:
-            icon, color, weight = ("⏳", "lightgrey", "normal")
-            if i < current_stage_index:
-                icon, color, weight = ("✅", "green", "normal")
-            elif i == current_stage_index:
-                icon, color, weight = ("➡️", "#007bff", "bold")
-
-            if stage_name == "Hired":
-                icon, color, weight = ("🎉", "green", "bold")
-            if stage_name == "Rejected":  # new styling for Rejected
-                icon, color, weight = ("✖️", "#FF4B4B", "bold")
-
-            timestamp = pipeline_stages.get(stage_name)
-            time_str = (
-                f"<p style='font-size: 11px; color: grey; margin: 0; "
-                f"white-space: nowrap;'>"
-                f"{timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b %I:%M %p')}"
-                f"</p>"
-            )
-            st.markdown(
-                f"""
-                <div style='text-align: center; padding: 5px; border-radius: 10px;
-                            background-color: #2E2E2E; margin: 2px;'>
-                    <p style='font-size: 24px; color: {color}; margin-bottom: -5px;'>
-                        {icon}
-                    </p>
-                    <p style='font-weight: {weight}; color: {color}; white-space: nowrap;'>
-                        {stage_name}
-                    </p>
-                    {time_str}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        if i < num_stages - 1:
-            with cols[i * 2 + 1]:
+        num_stages = len(stage_names)
+        column_widths = [
+            3 if i % 2 == 0 else 0.5 for i in range(2 * num_stages - 1)
+        ]
+        cols = st.columns(column_widths)
+    
+        for i, stage_name in enumerate(stage_names):
+            with cols[i * 2]:
+                icon, color, weight = ("⏳", "lightgrey", "normal")
+                if i < current_stage_index:
+                    icon, color, weight = ("✅", "green", "normal")
+                elif i == current_stage_index:
+                    icon, color, weight = ("➡️", "#007bff", "bold")
+    
+                if stage_name == "Hired":
+                    icon, color, weight = ("🎉", "green", "bold")
+                if stage_name == "Rejected":  # new styling for Rejected
+                    icon, color, weight = ("✖️", "#FF4B4B", "bold")
+    
+                timestamp = pipeline_stages.get(stage_name)
+                time_str = (
+                    f"<p style='font-size: 11px; color: grey; margin: 0; "
+                    f"white-space: nowrap;'>"
+                    f"{timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d-%b %I:%M %p')}"
+                    f"</p>"
+                )
                 st.markdown(
-                    "<p style='text-align: center; font-size: 24px; color: grey; "
-                    "margin-top: 35px;'>→</p>",
+                    f"""
+                    <div style='text-align: center; padding: 5px; border-radius: 10px;
+                                background-color: #2E2E2E; margin: 2px;'>
+                        <p style='font-size: 24px; color: {color}; margin-bottom: -5px;'>
+                            {icon}
+                        </p>
+                        <p style='font-weight: {weight}; color: {color}; white-space: nowrap;'>
+                            {stage_name}
+                        </p>
+                        {time_str}
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
+            if i < num_stages - 1:
+                with cols[i * 2 + 1]:
+                    st.markdown(
+                        "<p style='text-align: center; font-size: 24px; color: grey; "
+                        "margin-top: 35px;'>→</p>",
+                        unsafe_allow_html=True,
+                    )
 
     def render_feedback_dossier(applicant_id, feedback_json_str):
         st.subheader("Feedback & Notes")
