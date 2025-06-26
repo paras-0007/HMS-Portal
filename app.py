@@ -393,7 +393,7 @@ def run_app():
 
     main_tab1, main_tab2 = st.tabs(["Applicant Dashboard", "⚙️ System Settings"])
 
-     with main_tab1:
+    with main_tab1:
         if st.session_state.view_mode == 'grid':
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
