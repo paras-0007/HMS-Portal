@@ -401,7 +401,7 @@ def run_app():
             
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
+                is_selected = row_cols[0].checkbox(label=f"Select {row['Name']}", value=st.session_state.get(f"select_{row['Id']}", False), key=f"select_{row['Id']}", label_visibility="hidden")
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
                 row_cols[2].text(row['Role'])
@@ -632,29 +632,31 @@ def run_app():
 
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
+    # This part of the script runs when the user is not yet authenticated.
     if 'code' in st.query_params:
+        # Step 2: User has been redirected back from Google with an authorization code.
         try:
-            # Exchange the code for credentials
+            # Exchange the authorization code for a credentials object.
             flow = create_flow()
             flow.fetch_token(code=st.query_params['code'])
 
-            # Store credentials and user info
+            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
 
-            # Determine the redirect URI to clean the URL
+            # Step 3: Clear the now-used authorization code from the URL using a JS redirect.
+            # This is the most reliable method to prevent the "invalid_grant" error on refresh.
             try:
-                # This check helps determine if we are in local dev or deployed
+                # Determine the correct base URL (local vs. deployed)
                 with open('credentials.json') as f:
-                    pass # File exists, so we are local
-                redirect_uri = "http://localhost:8501"
+                    redirect_uri = "http://localhost:8501"
             except FileNotFoundError:
-                # File does not exist, so we are deployed
                 redirect_uri = st.secrets["REDIRECT_URI"]
 
-            # Perform a client-side redirect to the clean URL
+            # Use st.components.v1.html to inject the JavaScript redirect.
+            # Let the script run to completion so the session state is saved.
             st.components.v1.html(
                 f"""
                 <script>
@@ -663,19 +665,16 @@ if 'credentials' not in st.session_state:
                 """,
                 height=0
             )
-            # Stop the script to ensure the redirect happens
-            st.stop()
-
         except Exception as e:
             st.error(f"Error during authentication: {e}")
             st.stop()
     else:
-        # Show the login page
+        # Step 1: Show the login page.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # If credentials already exist, run the main app
+    # Step 4: User is authenticated, run the main application.
     run_app()
