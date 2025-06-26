@@ -74,8 +74,8 @@ class SheetsUpdater:
                     applicant.get('Phone', ''),
                     applicant.get('Education', ''),
                     applicant.get('JobHistory', ''),
-                    applicant.get('CvUrl', ''),
-                    applicant.get('Domain', ''),
+                    applicant.get('Resume', ''),
+                    applicant.get('Role', ''),
                     applicant.get('Status', ''),
                     applicant.get('Feedback', '')
                 ]
