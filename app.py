@@ -186,7 +186,7 @@ def run_app():
                     <p style='font-weight: {weight}; color: {color}; white-space: nowrap;'>{stage_name}</p>{time_str}</div>""", unsafe_allow_html=True)
             if i < num_stages - 1:
                 with cols[i*2 + 1]: st.markdown("<p style='text-align: center; font-size: 24px; color: grey; margin-top: 35px;'>→</p>", unsafe_allow_html=True)
-
+                    
     def render_feedback_dossier(applicant_id, feedback_json_str):
         st.subheader("Feedback & Notes")
         all_notes = get_feedback_notes(feedback_json_str)
