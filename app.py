@@ -691,7 +691,8 @@ if 'credentials' not in st.session_state:
             
             user_info_cookie = cookie_manager.get("user_info")
             if user_info_cookie:
-                st.session_state.user_info = user_info_cookie
+                # Convert the JSON string from the cookie back into a dictionary
+                st.session_state.user_info = json.loads(user_info_cookie)
             else:
                 user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
                 st.session_state.user_info = user_info_service.userinfo().get().execute()
