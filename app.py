@@ -455,7 +455,52 @@ def run_app():
                 st.header(f"{applicant['Name']}")
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
+                st.markdown("""
+                <style>
+                    /* Target the container for the radio buttons */
+                    div[data-testid="stRadio"] > div {
+                        display: flex;
+                        flex-direction: row;
+                        gap: 10px; /* Space between tabs */
+                    }
+                
+                    /* Style for each individual tab (radio button label) */
+                    div[data-testid="stRadio"] label {
+                        background-color: #333; /* Dark background */
+                        color: #FFF; /* White text */
+                        padding: 10px 20px; /* Padding inside the tab */
+                        border-radius: 8px; /* Rounded corners */
+                        border: 1px solid #555; /* Subtle border */
+                        transition: all 0.2s ease-in-out; /* Smooth transition for hover */
+                        cursor: pointer;
+                        display: block;
+                    }
 
+                    /* Hover effect for tabs */
+                    div[data-testid="stRadio"] label:hover {
+                        background-color: #444;
+                        border-color: #777;
+                    }
+
+                    /* Style for the SELECTED tab */
+                    div[data-testid="stRadio"] input:checked + div {
+                        background-color: #004488; /* A distinct blue background */
+                        color: #FFFFFF;
+                        font-weight: bold;
+                        border-color: #007BFF; /* A brighter blue border */
+                        box-shadow: 0 0 10px rgba(0, 123, 255, 0.5); /* A subtle glow effect */
+                    }
+
+                    /* Hide the actual radio button circle */
+                    div[data-testid="stRadio"] input[type="radio"] {
+                        display: none;
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+
+
+                # --- TAB IMPLEMENTATION (This part already exists) ---
+                tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
                 # --- CORRECTED TAB IMPLEMENTATION ---
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
                 
