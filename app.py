@@ -11,8 +11,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from extra_streamlit_components import CookieManager 
-import extra_streamlit_components as stx
+import streamlit_cookies_manager as stx
+from streamlit_cookies_manager import EncryptedCookieManager
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
 from modules.email_handler import EmailHandler
@@ -75,7 +75,9 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 def run_app():
     def logout():
-        cookie_manager = CookieManager()
+        cookie_manager = EncryptedCookieManager(
+        password=st.secrets["COOKIE_PASSWORD"],
+        )
         cookie_manager.delete("google_credentials", key="del_creds_logout")
         cookie_manager.delete("user_info", key="del_info_logout")
 
@@ -660,7 +662,9 @@ def run_app():
 
 
 # --- Authentication Flow ---
-cookie_manager = CookieManager()
+cookie_manager = EncryptedCookieManager(
+    password=st.secrets["COOKIE_PASSWORD"],
+)
 if 'credentials' not in st.session_state:
     credentials_cookie = cookie_manager.get(cookie="google_credentials")
     if credentials_cookie:
