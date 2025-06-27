@@ -23,6 +23,7 @@ from streamlit_quill import st_quill
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
+if 'active_detail_tab' not in st.session_state: st.session_state.active_detail_tab = "Profile"
 
 # --- Authentication Setup ---
 def create_flow():
@@ -407,7 +408,7 @@ def run_app():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"**{row['Name']}**")
+                row_cols[1].markdown(f"<div style='padding-top: 0.3rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
                 row_cols[2].markdown(str(row['Role']))
                 row_cols[3].markdown(str(row['Status']))
                 row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
@@ -455,7 +456,14 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                tab_profile, tab_timeline, tab_comms = st.tabs(["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"])
+                def on_tab_change():
+                    st.session_state.active_detail_tab = st.session_state.get("detail_tabs")
+
+                tab_profile, tab_timeline, tab_comms = st.tabs(
+                    ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"],
+                    key="detail_tabs",
+                    on_change=on_tab_change
+                )
                 with tab_profile:
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
