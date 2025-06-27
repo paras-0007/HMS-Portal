@@ -425,7 +425,7 @@ def run_app():
                     selected_ids.append(int(row['Id']))
                 
                 # Column 1-5: Applicant Data
-                row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
+                row_cols[1].markdown(f"<div style='margin-top: -0.5rem; margin-bottom: -0.5rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
                 row_cols[2].text(row['Role'])
                 row_cols[3].text(row['Status'])
                 row_cols[4].text(pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y'))
