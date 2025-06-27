@@ -388,12 +388,26 @@ def run_app():
 
     with main_tab1:
         if st.session_state.view_mode == 'grid':
+            # --- CSS INJECTION TO REDUCE ROW GAPS ---
+            # This CSS targets the container that holds all the applicant rows
+            # and reduces the vertical gap between them.
+            st.markdown("""
+                <style>
+                div[data-testid="stVerticalBlock"] > div.element-container {
+                    margin-bottom: -0.8rem;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+            # --- END CSS INJECTION ---
+
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All Visible", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            
+            # --- HEADER ---
             header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-            header_cols[0].markdown("")
+            header_cols[0].markdown("") 
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
             header_cols[3].markdown("**Status**")
@@ -401,19 +415,37 @@ def run_app():
             header_cols[5].markdown("**Last Action**")
             st.divider()
             
+            # --- APPLICANT ROWS ---
             selected_ids = []
+# Sort the DataFrame to display the most recently active applicants first
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
+            
+            # Iterate over the sorted DataFrame and display each applicant's information
             for _, row in df_display.iterrows():
+                # The st.container() has been removed from here to eliminate the large vertical gaps
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
-                if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"**{row['Name']}**")
-                row_cols[2].markdown(str(row['Role']))
-                row_cols[3].markdown(str(row['Status']))
-                row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
+            
+                # Column 0: Selection Checkbox
+                is_selected = row_cols[0].checkbox(
+                    label=f"Select applicant {row['Name']}",
+                    value=st.session_state.get(f"select_{row['Id']}", False),
+                    key=f"select_{row['Id']}",
+                    label_visibility="hidden"
+                )
+                if is_selected:
+                    selected_ids.append(int(row['Id']))
+            
+                # Column 1-5: Applicant Data
+                row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
+                row_cols[2].text(row['Role'])
+                row_cols[3].text(row['Status'])
+                row_cols[4].text(pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y'))
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(last_action_str)
+                row_cols[5].text(last_action_str)
+            
+                # Column 6: View Profile Button
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
+
             
             with st.sidebar:
                 st.divider(); st.header("🔥 Actions on Selected")
