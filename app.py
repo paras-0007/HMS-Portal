@@ -345,7 +345,7 @@ def run_app():
                     help="""
                     - Your Google Sheet must be public or shared.
                     - The first row must be the header.
-                    - Recommended columns: Name, Email, Phone, Role, CV_URL.
+                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
                     """
                 )
                 if st.button("Import from Sheet"):
@@ -369,7 +369,7 @@ def run_app():
                     help="""
                     - Supported formats: CSV, XLS, XLSX.
                     - The first row must be the header.
-                    - Recommended columns: Name, Email, Phone, Role, CV_URL.
+                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
                     """
                 )
                 if uploaded_file is not None:
@@ -684,32 +684,32 @@ def run_app():
                         st.cache_data.clear()
                         st.rerun()
                     else: st.warning("Please provide name and a unique email.")
-        st.subheader("🔴 Danger Zone")
-        with st.expander("Reset Application Data"):
-            st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
+        # st.subheader("🔴 Danger Zone")
+        # with st.expander("Reset Application Data"):
+        #     st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
             
-            if 'confirm_delete_db' not in st.session_state:
-                st.session_state.confirm_delete_db = False
+        #     if 'confirm_delete_db' not in st.session_state:
+        #         st.session_state.confirm_delete_db = False
 
-            if st.button("Initiate Database Reset", type="primary"):
-                st.session_state.confirm_delete_db = True
+        #     if st.button("Initiate Database Reset", type="primary"):
+        #         st.session_state.confirm_delete_db = True
             
-            if st.session_state.confirm_delete_db:
-                st.write("To confirm, please type **DELETE ALL DATA** in the box below.")
-                confirmation_text = st.text_input("Confirmation Phrase", placeholder="DELETE ALL DATA")
+        #     if st.session_state.confirm_delete_db:
+        #         st.write("To confirm, please type **DELETE ALL DATA** in the box below.")
+        #         confirmation_text = st.text_input("Confirmation Phrase", placeholder="DELETE ALL DATA")
                 
-                if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
-                    with st.spinner("Deleting all data and resetting tables..."):
-                        if db_handler.clear_all_tables():
-                            st.success("Database cleared successfully.")
-                            db_handler.create_tables()
-                            st.info("Application tables have been reset.")
-                            st.session_state.confirm_delete_db = False
-                            st.cache_data.clear()
-                            st.cache_resource.clear()
-                            st.rerun()
-                        else:
-                            st.error("An error occurred while clearing the database.")
+        #         if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
+        #             with st.spinner("Deleting all data and resetting tables..."):
+        #                 if db_handler.clear_all_tables():
+        #                     st.success("Database cleared successfully.")
+        #                     db_handler.create_tables()
+        #                     st.info("Application tables have been reset.")
+        #                     st.session_state.confirm_delete_db = False
+        #                     st.cache_data.clear()
+        #                     st.cache_resource.clear()
+        #                     st.rerun()
+        #                 else:
+        #                     st.error("An error occurred while clearing the database.")
 
 
 # --- Authentication Flow ---
