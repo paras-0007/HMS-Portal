@@ -417,32 +417,35 @@ def run_app():
             
             # --- APPLICANT ROWS ---
             selected_ids = []
+# Sort the DataFrame to display the most recently active applicants first
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             
+            # Iterate over the sorted DataFrame and display each applicant's information
             for _, row in df_display.iterrows():
-                with st.container():
-                    row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-                    
-                    # Column 0: Selection Checkbox
-                    is_selected = row_cols[0].checkbox(
-                        label=f"Select applicant {row['Name']}", 
-                        value=st.session_state.get(f"select_{row['Id']}", False), 
-                        key=f"select_{row['Id']}", 
-                        label_visibility="hidden"
-                    )
-                    if is_selected:
-                        selected_ids.append(int(row['Id']))
-                    
-                    # Column 1-5: Applicant Data
-                    row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
-                    row_cols[2].text(row['Role'])
-                    row_cols[3].text(row['Status'])
-                    row_cols[4].text(pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y'))
-                    last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                    row_cols[5].text(last_action_str)
-                    
-                    # Column 6: View Profile Button
-                    row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
+                # The st.container() has been removed from here to eliminate the large vertical gaps
+                row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+            
+                # Column 0: Selection Checkbox
+                is_selected = row_cols[0].checkbox(
+                    label=f"Select applicant {row['Name']}",
+                    value=st.session_state.get(f"select_{row['Id']}", False),
+                    key=f"select_{row['Id']}",
+                    label_visibility="hidden"
+                )
+                if is_selected:
+                    selected_ids.append(int(row['Id']))
+            
+                # Column 1-5: Applicant Data
+                row_cols[1].markdown(f"**{row['Name']}**", unsafe_allow_html=True)
+                row_cols[2].text(row['Role'])
+                row_cols[3].text(row['Status'])
+                row_cols[4].text(pd.to_datetime(row['CreatedAt']).strftime('%d-%b-%Y'))
+                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
+                row_cols[5].text(last_action_str)
+            
+                # Column 6: View Profile Button
+                row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
+
             
             with st.sidebar:
                 st.divider(); st.header("🔥 Actions on Selected")
