@@ -75,10 +75,10 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 def run_app():
     def logout():
-        """
-        Handles the logout process by revoking the Google token, clearing the session,
-        and cleaning the URL to ensure a fresh login state.
-        """
+        cookie_manager = CookieManager()
+        cookie_manager.delete("google_credentials", key="del_creds_logout")
+        cookie_manager.delete("user_info", key="del_info_logout")
+
         if 'credentials' in st.session_state:
             creds = st.session_state.credentials
             token_to_revoke = creds.refresh_token or creds.token
