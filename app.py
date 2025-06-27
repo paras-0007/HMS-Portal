@@ -75,11 +75,13 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 
 def run_app():
     def logout():
-        cookie_manager = EncryptedCookieManager(
-        password=st.secrets["COOKIE_PASSWORD"],
-        )
-        cookie_manager.delete("google_credentials", key="del_creds_logout")
-        cookie_manager.delete("user_info", key="del_info_logout")
+        """
+        Handles the logout process by revoking the Google token, clearing the session,
+        and cleaning the URL to ensure a fresh login state.
+        """
+        # This now uses the globally available cookie_manager from the bottom of the script
+        cookie_manager.delete("google_credentials")
+        cookie_manager.delete("user_info")
 
         if 'credentials' in st.session_state:
             creds = st.session_state.credentials
@@ -661,55 +663,68 @@ def run_app():
                             st.error("An error occurred while clearing the database.")
 
 
+# NEW, CORRECTED REFRESH-PROOF AUTHENTICATION FLOW
 # --- Authentication Flow ---
+# This should be one of the first commands run to ensure the manager is ready.
 cookie_manager = EncryptedCookieManager(
     password=st.secrets["COOKIE_PASSWORD"],
 )
+
+if not cookie_manager.ready():
+    # Wait for the component to be ready before continuing.
+    st.stop()
+
 if 'credentials' not in st.session_state:
-    credentials_cookie = cookie_manager.get(cookie="google_credentials")
+    # Check if we have credentials in a cookie using the correct dictionary-like .get() method
+    credentials_cookie = cookie_manager.get("google_credentials")
     if credentials_cookie:
         try:
-            creds_data = json.loads(credentials_cookie)
-            st.session_state.credentials = Credentials.from_authorized_user_info(creds_data)
+            st.session_state.credentials = Credentials.from_authorized_user_info(credentials_cookie)
             
-            user_info_cookie = cookie_manager.get(cookie="user_info")
+            user_info_cookie = cookie_manager.get("user_info")
             if user_info_cookie:
                 st.session_state.user_info = user_info_cookie
             else:
                 user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
                 st.session_state.user_info = user_info_service.userinfo().get().execute()
-                cookie_manager.set("user_info", json.dumps(st.session_state.user_info), key="set_user_info")
+                # Use dictionary-style setting for simplicity and clarity
+                cookie_manager["user_info"] = st.session_state.user_info
 
         except Exception as e:
-            cookie_manager.delete("google_credentials", key="del_creds_err")
-            cookie_manager.delete("user_info", key="del_info_err")
+            # If cookie is invalid, clear it
+            cookie_manager.delete("google_credentials")
+            cookie_manager.delete("user_info")
 
-    if 'credentials' not in st.session_state:
-        if 'code' in st.query_params:
-            try:
-                flow = create_flow()
-                flow.fetch_token(code=st.query_params['code'])
-
-                st.session_state.credentials = flow.credentials
-                user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
-                user_info = user_info_service.userinfo().get().execute()
-                st.session_state.user_info = user_info
-                
-                creds_json = st.session_state.credentials.to_json()
-                cookie_manager.set("google_credentials", creds_json, expires_at=datetime.datetime.now() + datetime.timedelta(days=7), key="set_creds")
-                cookie_manager.set("user_info", json.dumps(user_info), expires_at=datetime.datetime.now() + datetime.timedelta(days=7), key="set_info")
-
-                st.query_params.clear()
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Error during authentication: {e}")
-        else:
+# If no credentials in session or cookie, proceed with OAuth flow
+if 'credentials' not in st.session_state:
+    if 'code' in st.query_params:
+        try:
             flow = create_flow()
-            authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-            st.title("Welcome to the HMS")
-            st.write("Please log in with your Google Account to continue.")
-            st.link_button("Login with Google", authorization_url, use_container_width=True)
+            flow.fetch_token(code=st.query_params['code'])
+
+            st.session_state.credentials = flow.credentials
+            user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
+            user_info = user_info_service.userinfo().get().execute()
+            st.session_state.user_info = user_info
+            
+            # On successful login, save credentials and user info to cookies
+            # Use dictionary-style setting
+            cookie_manager["google_credentials"] = st.session_state.credentials.to_authorized_user_info()
+            cookie_manager["user_info"] = user_info
+
+            st.query_params.clear()
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Error during authentication: {e}")
+    else:
+        # Show the login page if no credentials can be found anywhere
+        flow = create_flow()
+        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
+        st.title("Welcome to the HMS")
+        st.write("Please log in with your Google Account to continue.")
+        st.link_button("Login with Google", authorization_url, use_container_width=True)
 
 if 'credentials' in st.session_state:
+    # If credentials exist (from cookie or login), run the main app.
     run_app()
