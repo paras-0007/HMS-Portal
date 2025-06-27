@@ -461,16 +461,12 @@ def run_app():
                 st.header(f"{applicant['Name']}")
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
-                st.markdown("""
-                <style>
-                    /* Target the labels of the radio buttons to make them larger and bold */
-                    div[data-testid="stRadio"] label {
-                        font-size: 2.1rem !important;
-                        font-weight: bold !important;
-                    }
-                </style>
-                """, unsafe_allow_html=True)
+
+                # --- CORRECTED TAB IMPLEMENTATION ---
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
+                
+                # The key for the radio widget itself stores the selected index (0, 1, or 2)
+                # We ensure it's initialized to 0 if it doesn't exist.
                 if f'detail_tab_index_{applicant_id}' not in st.session_state:
                     st.session_state[f'detail_tab_index_{applicant_id}'] = 0
                 
@@ -478,13 +474,14 @@ def run_app():
                     "Detail Navigation",
                     options=range(len(tab_options)),
                     format_func=lambda i: tab_options[i],
-                    index=st.session_state[f'detail_tab_index_{applicant_id}'], 
+                    index=st.session_state[f'detail_tab_index_{applicant_id}'], # Directly use the state variable
                     horizontal=True,
                     label_visibility="collapsed",
-                    key=f'detail_tab_index_{applicant_id}' 
+                    key=f'detail_tab_index_{applicant_id}' # Use the same key to read and write the state
                 )
                 
-                if selected_tab_index == 0:
+                # Render content based on the selected radio button index
+                if selected_tab_index == 0: # Corresponds to Profile & Actions
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
@@ -540,7 +537,7 @@ def run_app():
                                             else: st.error("Failed to create calendar event.")
                                 if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
 
-                elif selected_tab_index == 1: 
+                elif selected_tab_index == 1: # Corresponds to Feedback & Notes
                     st.subheader("Log a New Note")
                     with st.form("note_form_tab"):
                         history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
@@ -548,6 +545,7 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
+                                # No need to manually set the state, it's handled automatically by the radio key
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -559,7 +557,7 @@ def run_app():
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
 
-                elif selected_tab_index == 2: 
+                elif selected_tab_index == 2: # Corresponds to Email Hub
                     st.subheader("Email Hub")
                     conversations = load_conversations(applicant_id)
                     with st.container(height=300):
