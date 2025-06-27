@@ -57,6 +57,7 @@ def create_flow():
         'https://www.googleapis.com/auth/gmail.modify',
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/iam',
         'https://www.googleapis.com/auth/calendar'
     ]
     
@@ -665,6 +666,10 @@ def run_app():
 
 # FINAL CORRECTED REFRESH-PROOF AUTHENTICATION FLOW
 # --- Authentication Flow ---
+        if st.session_state.credentials.valid:
+                    cookie_manager["google_credentials"] = st.session_state.credentials.to_json()
+                    cookie_manager["user_info"] = st.session_state.user_info
+            
 cookie_manager = EncryptedCookieManager(
     password=st.secrets["COOKIE_PASSWORD"],
 )
