@@ -639,34 +639,22 @@ def run_app():
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
         try:
-            # Exchange the authorization code for a credentials object.
             flow = create_flow()
             flow.fetch_token(code=st.query_params['code'])
-
-            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
-
-            # Clear the query parameters from the URL
-            st.query_params.clear()
-            
-            # Rerun the script immediately to enter the main app logic
+            st.query_params.clear()            
             st.rerun()
 
         except Exception as e:
-            st.error(f"Error during authentication: {e}")
-            # Also helpful to log the full error for debugging
-            # from utils.logger import logger
-            # logger.error(f"Authentication failed: {e}", exc_info=True)
+            st.error(f"Error during authentication: {e}")           
     else:
-        # Show the login page if no code is in the URL.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # If credentials exist, run the main app.
     run_app()
