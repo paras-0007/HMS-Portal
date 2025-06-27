@@ -459,7 +459,7 @@ def run_app():
                 <style>
                     /* Target the labels of the radio buttons to make them larger and bold */
                     div[data-testid="stRadio"] label {
-                        font-size: 1.1rem !important;
+                        font-size: 2.1rem !important;
                         font-weight: bold !important;
                     }
                 </style>
