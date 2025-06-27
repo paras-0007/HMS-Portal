@@ -70,6 +70,9 @@ if 'view_mode' not in st.session_state: st.session_state.view_mode = 'grid'
 if 'selected_applicant_id' not in st.session_state: st.session_state.selected_applicant_id = None
 if 'confirm_delete' not in st.session_state: st.session_state.confirm_delete = False
 if 'schedule_view_active' not in st.session_state: st.session_state.schedule_view_active = False
+# --- MODIFICATION START: Add state for importer expander ---
+if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
+# --- MODIFICATION END ---
 
 
 def run_app():
@@ -329,7 +332,12 @@ def run_app():
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
 
-        with st.expander("📥 Import Applicants"):
+        # --- MODIFICATION START: Logic to keep importer expander open ---
+        with st.expander("📥 Import Applicants", expanded=st.session_state.importer_expanded):
+            # This invisible checkbox is the key. It gets created only when the expander is open.
+            # We use its state to know if the expander was open in the last run.
+            st.checkbox(" ", value=True, key='importer_was_open', label_visibility='collapsed')
+            
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
 
             if import_option == "From Google Sheet":
@@ -377,6 +385,16 @@ def run_app():
                             else:
                                 st.error("Failed to import from resume file.")
 
+        # This logic runs *after* the expander block.
+        # It checks if the invisible checkbox was rendered in this run.
+        if st.session_state.get('importer_was_open', False):
+            st.session_state.importer_expanded = True
+        else:
+            st.session_state.importer_expanded = False
+        # We must reset the key for the next run.
+        st.session_state.importer_was_open = False
+        # --- MODIFICATION END ---
+
 
     # --- Main Page UI ---
     st.title("Hiring Management System")
@@ -393,7 +411,7 @@ def run_app():
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+            header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
