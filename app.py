@@ -337,49 +337,17 @@ def run_app():
             importer_was_rendered = True
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
-
-            # --- MODIFICATION START: Add conditional help text ---
-            if import_option == "From Google Sheet":
-                st.info(
-                    """
-                    **ℹ️ Instructions:**
-                    - Your Google Sheet must be public or shared with the app's service account.
-                    - The first row of the sheet must be the header.
-                    - Recommended columns: `Name`, `Email`, `Phone`, `Role`, `CV_URL`.
-                    """,
-                    icon="ℹ️"
-                )
-            elif import_option == "From local file (CSV/Excel)":
-                st.info(
-                    """
-                    **ℹ️ Instructions:**
-                    - Supported formats: CSV, XLS, XLSX.
-                    - The first row of the file must be the header.
-                    - Recommended columns: `Name`, `Email`, `Phone`, `Role`, `CV_URL`.
-                    """,
-                    icon="ℹ️"
-                )
-            elif import_option == "From single resume URL":
-                st.info(
-                    """
-                    **ℹ️ Instructions:**
-                    - Paste a direct download link to a resume file.
-                    - For Google Drive, set sharing to "Anyone with the link".
-                    """,
-                    icon="ℹ️"
-                )
-            elif import_option == "From single resume file (PDF/DOCX)":
-                st.info(
-                    """
-                    **ℹ️ Instructions:**
-                    - Upload a single resume in PDF or DOCX format.
-                    """,
-                    icon="ℹ️"
-                )
-            # --- MODIFICATION END ---
             
             if import_option == "From Google Sheet":
-                sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
+                sheet_url = st.text_input(
+                    "Paste Google Sheet URL",
+                    key="g_sheet_url",
+                    help="""
+                    - Your Google Sheet must be public or shared.
+                    - The first row must be the header.
+                    - Recommended columns: Name, Email, Phone, Role, CV_URL.
+                    """
+                )
                 if st.button("Import from Sheet"):
                     if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
                         with st.spinner("Reading & Importing from Google Sheet..."):
@@ -397,7 +365,12 @@ def run_app():
                 uploaded_file = st.file_uploader(
                     "Choose a CSV or Excel file for bulk import",
                     type=["csv", "xls", "xlsx"],
-                    key=f"bulk_uploader_{st.session_state.uploader_key}"
+                    key=f"bulk_uploader_{st.session_state.uploader_key}",
+                    help="""
+                    - Supported formats: CSV, XLS, XLSX.
+                    - The first row must be the header.
+                    - Recommended columns: Name, Email, Phone, Role, CV_URL.
+                    """
                 )
                 if uploaded_file is not None:
                     if st.button("Import from File"):
@@ -410,7 +383,14 @@ def run_app():
                                 st.rerun()
 
             elif import_option == "From single resume URL":
-                resume_link = st.text_input("Paste resume URL", key="resume_url_input")
+                resume_link = st.text_input(
+                    "Paste resume URL",
+                    key="resume_url_input",
+                    help="""
+                    - Paste a direct download link to a resume file.
+                    - For Google Drive, set sharing to "Anyone with the link".
+                    """
+                )
                 if st.button("Import from Resume URL"):
                     if resume_link:
                         with st.spinner("Analyzing resume and creating profile..."):
@@ -427,7 +407,8 @@ def run_app():
                 uploaded_resume = st.file_uploader(
                     "Upload a single resume",
                     type=['pdf', 'docx'],
-                    key=f"resume_uploader_{st.session_state.resume_uploader_key}"
+                    key=f"resume_uploader_{st.session_state.resume_uploader_key}",
+                    help="- Upload a single resume in PDF or DOCX format."
                 )
                 if uploaded_resume:
                     if st.button("Import from Resume File"):
@@ -442,7 +423,6 @@ def run_app():
                                 st.error("Failed to import from resume file.")
 
         st.session_state.importer_expanded = importer_was_rendered
-
 
     # --- Main Page UI ---
     st.title("Hiring Management System")
