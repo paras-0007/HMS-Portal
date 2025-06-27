@@ -408,11 +408,10 @@ def run_app():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
-                # app.py line 451 (Corrected)
                 row_cols[1].markdown(f"<div style='padding-top: 0.7rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
                 row_cols[2].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
                 row_cols[3].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
-                row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
+                row_cols[4].markdown(f"<div style='padding-top: 0.7rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
                 row_cols[5].markdown(f"<div style='padding-top: 0.7rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
@@ -457,11 +456,8 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                # --- CORRECTED TAB IMPLEMENTATION ---
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
                 
-                # The key for the radio widget itself stores the selected index (0, 1, or 2)
-                # We ensure it's initialized to 0 if it doesn't exist.
                 if f'detail_tab_index_{applicant_id}' not in st.session_state:
                     st.session_state[f'detail_tab_index_{applicant_id}'] = 0
                 
@@ -469,14 +465,13 @@ def run_app():
                     "Detail Navigation",
                     options=range(len(tab_options)),
                     format_func=lambda i: tab_options[i],
-                    index=st.session_state[f'detail_tab_index_{applicant_id}'], # Directly use the state variable
+                    index=st.session_state[f'detail_tab_index_{applicant_id}'], 
                     horizontal=True,
                     label_visibility="collapsed",
-                    key=f'detail_tab_index_{applicant_id}' # Use the same key to read and write the state
-                )
+                    key=f'detail_tab_index_{applicant_id}'
+                )                
                 
-                # Render content based on the selected radio button index
-                if selected_tab_index == 0: # Corresponds to Profile & Actions
+                if selected_tab_index == 0: 
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
@@ -532,7 +527,7 @@ def run_app():
                                             else: st.error("Failed to create calendar event.")
                                 if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
 
-                elif selected_tab_index == 1: # Corresponds to Feedback & Notes
+                elif selected_tab_index == 1: 
                     st.subheader("Log a New Note")
                     with st.form("note_form_tab"):
                         history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
@@ -540,7 +535,6 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
-                                # No need to manually set the state, it's handled automatically by the radio key
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -552,7 +546,7 @@ def run_app():
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
 
-                elif selected_tab_index == 2: # Corresponds to Email Hub
+                elif selected_tab_index == 2: 
                     st.subheader("Email Hub")
                     conversations = load_conversations(applicant_id)
                     with st.container(height=300):
@@ -661,34 +655,25 @@ def run_app():
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
         try:
-            # Exchange the authorization code for a credentials object.
             flow = create_flow()
             flow.fetch_token(code=st.query_params['code'])
 
-            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
 
-            # Clear the query parameters from the URL
             st.query_params.clear()
             
-            # Rerun the script immediately to enter the main app logic
             st.rerun()
 
         except Exception as e:
             st.error(f"Error during authentication: {e}")
-            # Also helpful to log the full error for debugging
-            # from utils.logger import logger
-            # logger.error(f"Authentication failed: {e}", exc_info=True)
     else:
-        # Show the login page if no code is in the URL.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
-    # If credentials exist, run the main app.
     run_app()
