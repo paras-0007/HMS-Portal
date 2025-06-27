@@ -456,15 +456,27 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                def on_tab_change():
-                    st.session_state.active_detail_tab = st.session_state.get("detail_tabs")
+                # --- NEW TAB IMPLEMENTATION ---
+                # We use st.radio styled as tabs for better state control
+                if 'active_detail_tab' not in st.session_state:
+                    st.session_state.active_detail_tab = 0
 
-                tab_profile, tab_timeline, tab_comms = st.tabs(
-                    ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"],
-                    key="detail_tabs",
-                    on_change=on_tab_change
+                tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
+                
+                # Use a key and update session state to remember the selected tab
+                selected_tab_index = st.radio(
+                    "Detail Navigation",
+                    options=range(len(tab_options)),
+                    format_func=lambda i: tab_options[i],
+                    index=st.session_state.active_detail_tab,
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key=f"detail_radio_tabs_{applicant_id}"
                 )
-                with tab_profile:
+                st.session_state.active_detail_tab = selected_tab_index
+                
+                # Render content based on the selected radio button index
+                if selected_tab_index == 0: # Corresponds to Profile & Actions
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
@@ -519,7 +531,8 @@ def run_app():
                                                 st.cache_data.clear(); st.rerun()
                                             else: st.error("Failed to create calendar event.")
                                 if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
-                with tab_timeline:
+
+                elif selected_tab_index == 1: # Corresponds to Feedback & Notes
                     st.subheader("Log a New Note")
                     with st.form("note_form_tab"):
                         history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
@@ -527,6 +540,8 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
+                                # Set the active tab index before the rerun
+                                st.session_state.active_detail_tab = 1
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -537,7 +552,8 @@ def run_app():
                             else: st.warning("Note cannot be empty.")
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
-                with tab_comms:
+
+                elif selected_tab_index == 2: # Corresponds to Email Hub
                     st.subheader("Email Hub")
                     conversations = load_conversations(applicant_id)
                     with st.container(height=300):
@@ -557,6 +573,8 @@ def run_app():
 
                         if st.form_submit_button("Send Email", use_container_width=True, disabled=disable_form):
                             if email_body_content and len(email_body_content) > 15:
+                                # Set the active tab index before the rerun
+                                st.session_state.active_detail_tab = 2
                                 subject = f"Re: Your application for {applicant['Role']}"
                                 with st.spinner("Sending..."):
                                     thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
