@@ -392,22 +392,23 @@ def run_app():
             
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
-                for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            
-            # --- HEADER ---
-            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
-            header_cols[0].markdown("") 
-            header_cols[1].markdown("**Name**")
-            header_cols[2].markdown("**Role**")
-            header_cols[3].markdown("**Status**")
-            header_cols[4].markdown("**Applied On**")
-            header_cols[5].markdown("**Last Action**")
-            st.divider()
-            
-            # --- APPLICANT ROWS ---
-            selected_ids = []
-            df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
+                for _, row in df.iterrows(): 
+                    st.session_state[f"select_{row['Id']}"] = select_all_value
+                    st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+                    
+                    # --- HEADER ---
+                    header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+                    header_cols[0].markdown("") 
+                    header_cols[1].markdown("**Name**")
+                    header_cols[2].markdown("**Role**")
+                    header_cols[3].markdown("**Status**")
+                    header_cols[4].markdown("**Applied On**")
+                    header_cols[5].markdown("**Last Action**")
+                    st.divider()
+                    
+                    # --- APPLICANT ROWS ---
+                    selected_ids = []
+                    df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             
             for _, row in df_display.iterrows():
                 # This section is now clean, with no "st.container()" wrapping it.
