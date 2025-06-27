@@ -339,7 +339,43 @@ def run_app():
             importer_was_rendered = True
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
-
+            if import_option == "From Google Sheet":
+                st.info(
+                    """
+                    **ℹ️ Instructions:**
+                    - Your Google Sheet must be public or shared with the app's service account.
+                    - The first row of the sheet must be the header.
+                    - Recommended columns: `Name`, `Email`, `Phone`, `Role`, `CV_URL`.
+                    """,
+                    icon="ℹ️"
+                )
+            elif import_option == "From local file (CSV/Excel)":
+                st.info(
+                    """
+                    **ℹ️ Instructions:**
+                    - Supported formats: CSV, XLS, XLSX.
+                    - The first row of the file must be the header.
+                    - Recommended columns: `Name`, `Email`, `Phone`, `Role`, `CV_URL`.
+                    """,
+                    icon="ℹ️"
+                )
+            elif import_option == "From single resume URL":
+                st.info(
+                    """
+                    **ℹ️ Instructions:**
+                    - Paste a direct download link to a resume file.
+                    - For Google Drive, set sharing to "Anyone with the link".
+                    """,
+                    icon="ℹ️"
+                )
+            elif import_option == "From single resume file (PDF/DOCX)":
+                st.info(
+                    """
+                    **ℹ️ Instructions:**
+                    - Upload a single resume in PDF or DOCX format.
+                    """,
+                    icon="ℹ️"
+                )
             if import_option == "From Google Sheet":
                 sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
                 if st.button("Import from Sheet"):
