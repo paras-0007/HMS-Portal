@@ -482,14 +482,6 @@ def run_app():
                         border-color: #777;
                     }
 
-                    /* Style for the SELECTED tab */
-                    div[data-testid="stRadio"] input:checked + div {
-                        background-color: #004488; /* A distinct blue background */
-                        color: #FFFFFF;
-                        font-weight: bold;
-                        border-color: #007BFF; /* A brighter blue border */
-                        box-shadow: 0 0 10px rgba(0, 123, 255, 0.5); /* A subtle glow effect */
-                    }
 
                     /* Hide the actual radio button circle */
                     div[data-testid="stRadio"] input[type="radio"] {
@@ -501,8 +493,7 @@ def run_app():
 
                 # --- TAB IMPLEMENTATION (This part already exists) ---
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
-                # --- CORRECTED TAB IMPLEMENTATION ---
-                tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
+                
                 
                 # The key for the radio widget itself stores the selected index (0, 1, or 2)
                 # We ensure it's initialized to 0 if it doesn't exist.
