@@ -274,7 +274,7 @@ def run_app():
 
     # --- Sidebar UI ---
     with st.sidebar:
-        st.header(f"Welcome, {st.session_state.user_info['given_name']}!")
+        st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
         
         if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
@@ -392,7 +392,7 @@ def run_app():
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All Visible", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
@@ -409,12 +409,12 @@ def run_app():
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 # app.py line 451 (Corrected)
-                row_cols[1].markdown(f"<div style='padding-top: 0.5rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
-                row_cols[2].markdown(str(row['Role']))
-                row_cols[3].markdown(str(row['Status']))
+                row_cols[1].markdown(f"<div style='padding-top: 0.7rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
+                row_cols[2].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
+                row_cols[3].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
                 row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(last_action_str)
+                row_cols[5].markdown(f"<div style='padding-top: 0.7rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             
             with st.sidebar:
@@ -686,7 +686,7 @@ if 'credentials' not in st.session_state:
         # Show the login page if no code is in the URL.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-        st.title("Welcome to the HMS")
+        st.title("Welcome to HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
