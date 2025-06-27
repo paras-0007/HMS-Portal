@@ -11,8 +11,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import streamlit_cookies_manager as stx
-from streamlit_cookies_manager import EncryptedCookieManager
+
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
 from modules.email_handler import EmailHandler
@@ -24,7 +23,6 @@ from streamlit_quill import st_quill
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
-if 'active_detail_tab' not in st.session_state: st.session_state.active_detail_tab = "Profile"
 
 # --- Authentication Setup ---
 def create_flow():
@@ -57,7 +55,6 @@ def create_flow():
         'https://www.googleapis.com/auth/gmail.modify',
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/iam',
         'https://www.googleapis.com/auth/calendar'
     ]
     
@@ -80,10 +77,6 @@ def run_app():
         Handles the logout process by revoking the Google token, clearing the session,
         and cleaning the URL to ensure a fresh login state.
         """
-        # This now uses the globally available cookie_manager from the bottom of the script
-        cookie_manager.delete("google_credentials")
-        cookie_manager.delete("user_info")
-
         if 'credentials' in st.session_state:
             creds = st.session_state.credentials
             token_to_revoke = creds.refresh_token or creds.token
@@ -280,10 +273,10 @@ def run_app():
 
     # --- Sidebar UI ---
     with st.sidebar:
-        st.header(f"Welcome {st.session_state.user_info['given_name']}!")
+        st.header(f"Welcome, {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
         
-        if st.button("📧 Sync New Emails", use_container_width=True, type="primary"):
+        if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
             try:
                 with st.spinner("Processing your inbox..."):
                     engine = ProcessingEngine(credentials)
@@ -398,7 +391,7 @@ def run_app():
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            st.checkbox("Select/Deselect All Visible", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
             header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
@@ -414,7 +407,7 @@ def run_app():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"<div style='padding-top: 0.3rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
+                row_cols[1].markdown(f"**{row['Name']}**")
                 row_cols[2].markdown(str(row['Role']))
                 row_cols[3].markdown(str(row['Status']))
                 row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
@@ -462,26 +455,8 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                # --- CORRECTED TAB IMPLEMENTATION ---
-                tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
-                
-                # The key for the radio widget itself stores the selected index (0, 1, or 2)
-                # We ensure it's initialized to 0 if it doesn't exist.
-                if f'detail_tab_index_{applicant_id}' not in st.session_state:
-                    st.session_state[f'detail_tab_index_{applicant_id}'] = 0
-                
-                selected_tab_index = st.radio(
-                    "Detail Navigation",
-                    options=range(len(tab_options)),
-                    format_func=lambda i: tab_options[i],
-                    index=st.session_state[f'detail_tab_index_{applicant_id}'], # Directly use the state variable
-                    horizontal=True,
-                    label_visibility="collapsed",
-                    key=f'detail_tab_index_{applicant_id}' # Use the same key to read and write the state
-                )
-                
-                # Render content based on the selected radio button index
-                if selected_tab_index == 0: # Corresponds to Profile & Actions
+                tab_profile, tab_timeline, tab_comms = st.tabs(["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"])
+                with tab_profile:
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
@@ -536,8 +511,7 @@ def run_app():
                                                 st.cache_data.clear(); st.rerun()
                                             else: st.error("Failed to create calendar event.")
                                 if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
-
-                elif selected_tab_index == 1: # Corresponds to Feedback & Notes
+                with tab_timeline:
                     st.subheader("Log a New Note")
                     with st.form("note_form_tab"):
                         history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
@@ -545,7 +519,6 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
-                                # No need to manually set the state, it's handled automatically by the radio key
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -556,8 +529,7 @@ def run_app():
                             else: st.warning("Note cannot be empty.")
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
-
-                elif selected_tab_index == 2: # Corresponds to Email Hub
+                with tab_comms:
                     st.subheader("Email Hub")
                     conversations = load_conversations(applicant_id)
                     with st.container(height=300):
@@ -603,6 +575,7 @@ def run_app():
                                         st.error("Failed to send email.")
                             else:
                                 st.warning("Email body is too short.")
+
     with main_tab2:
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
@@ -662,79 +635,38 @@ def run_app():
                             st.error("An error occurred while clearing the database.")
 
 
-# FINAL CORRECTED REFRESH-PROOF AUTHENTICATION FLOW
 # --- Authentication Flow ---
-        if st.session_state.credentials.valid:
-            cookie_manager["google_credentials"] = st.session_state.credentials.to_json()
-            # Convert the user_info dictionary to a JSON string before saving
-            cookie_manager["user_info"] = json.dumps(st.session_state.user_info)
-            
-cookie_manager = EncryptedCookieManager(
-    password=st.secrets["COOKIE_PASSWORD"],
-)
-
-if not cookie_manager.ready():
-    # Wait for the component to be ready before continuing.
-    st.stop()
-
-if 'credentials' not in st.session_state:
-    # Check if we have credentials in a cookie
-    credentials_cookie = cookie_manager.get("google_credentials")
-    if credentials_cookie:
-        try:
-            # First, parse the JSON string from the cookie back into a dictionary
-            creds_data = json.loads(credentials_cookie)
-            # Now, load the credentials from the dictionary
-            st.session_state.credentials = Credentials.from_authorized_user_info(creds_data)
-            
-            user_info_cookie = cookie_manager.get("user_info")
-            if user_info_cookie:
-                # Convert the JSON string from the cookie back into a dictionary
-                st.session_state.user_info = json.loads(user_info_cookie)
-            else:
-                user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
-                st.session_state.user_info = user_info_service.userinfo().get().execute()
-                cookie_manager["user_info"] = st.session_state.user_info
-
-        except Exception as e:
-            # If cookie is invalid, clear it
-            cookie_manager.delete("google_credentials")
-            cookie_manager.delete("user_info")
-
-# If no credentials in session or cookie, proceed with OAuth flow
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
         try:
+            # Exchange the authorization code for a credentials object.
             flow = create_flow()
             flow.fetch_token(code=st.query_params['code'])
 
+            # Store the credentials and user info in the session state.
             st.session_state.credentials = flow.credentials
             user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
             user_info = user_info_service.userinfo().get().execute()
             st.session_state.user_info = user_info
-            
-            # On successful login, save credentials and user info to cookies
-            # Use the CORRECT .to_json() method to serialize credentials
-            cookie_manager["google_credentials"] = st.session_state.credentials.to_json()
-            cookie_manager["user_info"] = user_info
 
+            # Clear the query parameters from the URL
             st.query_params.clear()
+            
+            # Rerun the script immediately to enter the main app logic
             st.rerun()
 
         except Exception as e:
             st.error(f"Error during authentication: {e}")
-            # To aid in debugging, you might want to log the full error
-            from utils.logger import logger
-            logger.error(f"Authentication failed: {e}", exc_info=True)
-            
+            # Also helpful to log the full error for debugging
+            # from utils.logger import logger
+            # logger.error(f"Authentication failed: {e}", exc_info=True)
     else:
-        # Show the login page if no credentials can be found anywhere
+        # Show the login page if no code is in the URL.
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.title("Welcome to the HMS")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
-
-if 'credentials' in st.session_state:
-    # If credentials exist (from cookie or login), run the main app.
+else:
+    # If credentials exist, run the main app.
     run_app()
