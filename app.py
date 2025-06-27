@@ -393,7 +393,7 @@ def run_app():
             # and reduces the vertical gap between them.
             st.markdown("""
                 <style>
-                div[data-testid="stVerticalBlock"] > div.element-container {
+                div[data-testid="stVerticalBlock"] > div.element-container:nth-child(n+4) {
                     margin-bottom: -0.8rem;
                 }
                 </style>
