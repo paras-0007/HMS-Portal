@@ -11,7 +11,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-
+from extra_streamlit_components import CookieManager 
+import extra_streamlit_components as stx
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
 from modules.email_handler import EmailHandler
@@ -659,25 +660,52 @@ def run_app():
 
 
 # --- Authentication Flow ---
+cookie_manager = CookieManager()
 if 'credentials' not in st.session_state:
-    if 'code' in st.query_params:
+    credentials_cookie = cookie_manager.get(cookie="google_credentials")
+    if credentials_cookie:
         try:
-            flow = create_flow()
-            flow.fetch_token(code=st.query_params['code'])
-            st.session_state.credentials = flow.credentials
-            user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
-            user_info = user_info_service.userinfo().get().execute()
-            st.session_state.user_info = user_info
-            st.query_params.clear()            
-            st.rerun()
+            creds_data = json.loads(credentials_cookie)
+            st.session_state.credentials = Credentials.from_authorized_user_info(creds_data)
+            
+            user_info_cookie = cookie_manager.get(cookie="user_info")
+            if user_info_cookie:
+                st.session_state.user_info = user_info_cookie
+            else:
+                user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
+                st.session_state.user_info = user_info_service.userinfo().get().execute()
+                cookie_manager.set("user_info", json.dumps(st.session_state.user_info), key="set_user_info")
 
         except Exception as e:
-            st.error(f"Error during authentication: {e}")           
-    else:
-        flow = create_flow()
-        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-        st.title("Welcome to the HMS")
-        st.write("Please log in with your Google Account to continue.")
-        st.link_button("Login with Google", authorization_url, use_container_width=True)
-else:
+            cookie_manager.delete("google_credentials", key="del_creds_err")
+            cookie_manager.delete("user_info", key="del_info_err")
+
+    if 'credentials' not in st.session_state:
+        if 'code' in st.query_params:
+            try:
+                flow = create_flow()
+                flow.fetch_token(code=st.query_params['code'])
+
+                st.session_state.credentials = flow.credentials
+                user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
+                user_info = user_info_service.userinfo().get().execute()
+                st.session_state.user_info = user_info
+                
+                creds_json = st.session_state.credentials.to_json()
+                cookie_manager.set("google_credentials", creds_json, expires_at=datetime.datetime.now() + datetime.timedelta(days=7), key="set_creds")
+                cookie_manager.set("user_info", json.dumps(user_info), expires_at=datetime.datetime.now() + datetime.timedelta(days=7), key="set_info")
+
+                st.query_params.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error during authentication: {e}")
+        else:
+            flow = create_flow()
+            authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
+            st.title("Welcome to the HMS")
+            st.write("Please log in with your Google Account to continue.")
+            st.link_button("Login with Google", authorization_url, use_container_width=True)
+
+if 'credentials' in st.session_state:
     run_app()
