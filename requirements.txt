@@ -1,4 +1,4 @@
-streamlit==1.46.1
+streamlit
 pandas
 psycopg2-binary
 openai
@@ -11,3 +11,4 @@ streamlit-quill
 python-dotenv
 requests
 openpyxl
+streamlit-cookies-manager
