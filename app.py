@@ -408,12 +408,12 @@ def run_app():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"<div style='padding-top: 0.7rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
-                row_cols[2].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
-                row_cols[3].markdown(f"<div style='padding-top: 0.7rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
-                row_cols[4].markdown(f"<div style='padding-top: 0.7rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
+                row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
+                row_cols[2].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
+                row_cols[3].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
+                row_cols[4].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(f"<div style='padding-top: 0.7rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
+                row_cols[5].markdown(f"<div style='padding-top: 0.6rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
                 row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
             
             with st.sidebar:
