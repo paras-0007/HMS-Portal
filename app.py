@@ -116,6 +116,61 @@ def run_app():
     calendar_handler = get_calendar_handler(credentials)
     importer = get_importer(credentials)
 
+    # --- Callbacks for Importer ---
+    def handle_google_sheet_import():
+        sheet_url = st.session_state.g_sheet_url
+        if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
+            with st.spinner("Reading & Importing from Google Sheet..."):
+                data = sheets_updater.read_sheet_data(sid.group(1))
+                if isinstance(data, pd.DataFrame) and not data.empty:
+                    inserted, skipped = importer._process_dataframe(data)
+                    st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}.")
+                    st.session_state.g_sheet_url = ""
+                    st.cache_data.clear()
+                else:
+                    st.error(f"Could not read data from sheet. {data}")
+        else:
+            st.warning("Please provide a valid Google Sheet URL.")
+    
+    def handle_bulk_file_import():
+        uploader_key = f"bulk_uploader_{st.session_state.uploader_key}"
+        uploaded_file = st.session_state[uploader_key]
+        if uploaded_file:
+            with st.spinner("Processing file and importing..."):
+                status_msg, count = importer.import_from_local_file(uploaded_file)
+                st.success(status_msg)
+                if count > 0:
+                    st.session_state.uploader_key += 1
+                    st.cache_data.clear()
+
+    def handle_resume_url_import():
+        resume_link = st.session_state.resume_url_input
+        if resume_link:
+            with st.spinner("Analyzing resume and creating profile..."):
+                applicant_id = importer.import_from_resume(resume_link)
+                if applicant_id:
+                    st.success(f"Successfully imported applicant. New ID: {applicant_id}")
+                    st.session_state.resume_url_input = ""
+                    st.cache_data.clear()
+                else:
+                    st.error("Failed to import from resume link.")
+        else:
+            st.warning("Please provide a resume URL.")
+
+    def handle_local_resume_import():
+        uploader_key = f"resume_uploader_{st.session_state.resume_uploader_key}"
+        uploaded_resume = st.session_state[uploader_key]
+        if uploaded_resume:
+            with st.spinner("Analyzing resume and creating profile..."):
+                applicant_id = importer.import_from_local_resume(uploaded_resume)
+                if applicant_id:
+                    st.success(f"Successfully imported applicant. New ID: {applicant_id}")
+                    st.session_state.resume_uploader_key += 1
+                    st.cache_data.clear()
+                else:
+                    st.error("Failed to import from resume file.")
+
+
     # --- Data Loading & Caching Functions ---
     @st.cache_data(ttl=300)
     def load_all_applicants():
@@ -338,31 +393,21 @@ def run_app():
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
             
+            # --- MODIFICATION START: Refactored importer with callbacks ---
             if import_option == "From Google Sheet":
-                sheet_url = st.text_input(
+                st.text_input(
                     "Paste Google Sheet URL",
                     key="g_sheet_url",
-                    help="""
+                     help="""
                     - Your Google Sheet must be public or shared.
                     - The first row must be the header.
                     - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
                     """
                 )
-                if st.button("Import from Sheet"):
-                    if sheet_url and (sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)):
-                        with st.spinner("Reading & Importing from Google Sheet..."):
-                            data = sheets_updater.read_sheet_data(sid.group(1))
-                            if isinstance(data, pd.DataFrame) and not data.empty:
-                                inserted, skipped = importer._process_dataframe(data)
-                                st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}.")
-                                st.session_state.g_sheet_url = "" # Clear input
-                                st.cache_data.clear()
-                                st.rerun()
-                            else: st.error(f"Could not read data from sheet. {data}")
-                    else: st.warning("Please provide a valid Google Sheet URL.")
+                st.button("Import from Sheet", on_click=handle_google_sheet_import)
             
             elif import_option == "From local file (CSV/Excel)":
-                uploaded_file = st.file_uploader(
+                st.file_uploader(
                     "Choose a CSV or Excel file for bulk import",
                     type=["csv", "xls", "xlsx"],
                     key=f"bulk_uploader_{st.session_state.uploader_key}",
@@ -372,18 +417,11 @@ def run_app():
                     - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
                     """
                 )
-                if uploaded_file is not None:
-                    if st.button("Import from File"):
-                        with st.spinner("Processing file and importing..."):
-                            status_msg, count = importer.import_from_local_file(uploaded_file)
-                            st.success(status_msg)
-                            if count > 0:
-                                st.session_state.uploader_key += 1 # Clear input
-                                st.cache_data.clear()
-                                st.rerun()
+                if st.session_state[f"bulk_uploader_{st.session_state.uploader_key}"]:
+                    st.button("Import from File", on_click=handle_bulk_file_import)
 
             elif import_option == "From single resume URL":
-                resume_link = st.text_input(
+                st.text_input(
                     "Paste resume URL",
                     key="resume_url_input",
                     help="""
@@ -391,38 +429,21 @@ def run_app():
                     - For Google Drive, set sharing to "Anyone with the link".
                     """
                 )
-                if st.button("Import from Resume URL"):
-                    if resume_link:
-                        with st.spinner("Analyzing resume and creating profile..."):
-                            applicant_id = importer.import_from_resume(resume_link)
-                            if applicant_id:
-                                st.success(f"Successfully imported applicant. New ID: {applicant_id}")
-                                st.session_state.resume_url_input = "" # Clear input
-                                st.cache_data.clear()
-                                st.rerun()
-                            else: st.error("Failed to import from resume link.")
-                    else: st.warning("Please provide a resume URL.")
+                st.button("Import from Resume URL", on_click=handle_resume_url_import)
             
             elif import_option == "From single resume file (PDF/DOCX)":
-                uploaded_resume = st.file_uploader(
+                st.file_uploader(
                     "Upload a single resume",
                     type=['pdf', 'docx'],
                     key=f"resume_uploader_{st.session_state.resume_uploader_key}",
                     help="- Upload a single resume in PDF or DOCX format."
                 )
-                if uploaded_resume:
-                    if st.button("Import from Resume File"):
-                        with st.spinner("Analyzing resume and creating profile..."):
-                            applicant_id = importer.import_from_local_resume(uploaded_resume)
-                            if applicant_id:
-                                st.success(f"Successfully imported applicant. New ID: {applicant_id}")
-                                st.session_state.resume_uploader_key += 1 # Clear input
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error("Failed to import from resume file.")
+                if st.session_state[f"resume_uploader_{st.session_state.resume_uploader_key}"]:
+                    st.button("Import from Resume File", on_click=handle_local_resume_import)
+            # --- MODIFICATION END ---
 
         st.session_state.importer_expanded = importer_was_rendered
+
 
     # --- Main Page UI ---
     st.title("Hiring Management System")
@@ -433,7 +454,7 @@ def run_app():
 
     active_tab = st.radio(
         "Main Navigation",
-        ["Applicant Dashboard", "⚙️ System Settings"],
+        ["Applicant Dashboard", "System Settings"],
         horizontal=True,
         label_visibility="collapsed",
         key='main_tab'
@@ -445,7 +466,7 @@ def run_app():
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+            header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
@@ -457,7 +478,7 @@ def run_app():
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             for _, row in df_display.iterrows():
-                row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+                row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
@@ -645,7 +666,7 @@ def run_app():
                             else:
                                 st.warning("Email body is too short.")
 
-    elif st.session_state.main_tab == "⚙️ System Settings":
+    elif st.session_state.main_tab == "System Settings":
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
         st.divider()
