@@ -332,11 +332,10 @@ def run_app():
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
 
-        # --- MODIFICATION START: Logic to keep importer expander open ---
-        with st.expander("📥 Import Applicants", expanded=st.session_state.importer_expanded):
-            # This invisible checkbox is the key. It gets created only when the expander is open.
-            # We use its state to know if the expander was open in the last run.
-            st.checkbox(" ", value=True, key='importer_was_open', label_visibility='collapsed')
+        # --- MODIFICATION START: Corrected logic to keep importer expander open ---
+        importer_was_rendered = False
+        with st.expander("📥 Import Applicants", expanded=st.session_state.get('importer_expanded', False)):
+            importer_was_rendered = True
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
 
@@ -385,14 +384,7 @@ def run_app():
                             else:
                                 st.error("Failed to import from resume file.")
 
-        # This logic runs *after* the expander block.
-        # It checks if the invisible checkbox was rendered in this run.
-        if st.session_state.get('importer_was_open', False):
-            st.session_state.importer_expanded = True
-        else:
-            st.session_state.importer_expanded = False
-        # We must reset the key for the next run.
-        st.session_state.importer_was_open = False
+        st.session_state.importer_expanded = importer_was_rendered
         # --- MODIFICATION END ---
 
 
@@ -411,7 +403,7 @@ def run_app():
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
+            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
@@ -423,7 +415,7 @@ def run_app():
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             for _, row in df_display.iterrows():
-                row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
+                row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
