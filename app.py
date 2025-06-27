@@ -70,8 +70,10 @@ if 'view_mode' not in st.session_state: st.session_state.view_mode = 'grid'
 if 'selected_applicant_id' not in st.session_state: st.session_state.selected_applicant_id = None
 if 'confirm_delete' not in st.session_state: st.session_state.confirm_delete = False
 if 'schedule_view_active' not in st.session_state: st.session_state.schedule_view_active = False
-# --- MODIFICATION START: Add state for importer expander ---
 if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
+# --- MODIFICATION START: Add keys for clearing widgets ---
+if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
+if 'resume_uploader_key' not in st.session_state: st.session_state.resume_uploader_key = 0
 # --- MODIFICATION END ---
 
 
@@ -332,7 +334,6 @@ def run_app():
                     st.success(f"Deleted log: {log['file_name']}")
                     st.rerun()
 
-        # --- MODIFICATION START: Corrected logic to keep importer expander open ---
         importer_was_rendered = False
         with st.expander("📥 Import Applicants", expanded=st.session_state.get('importer_expanded', False)):
             importer_was_rendered = True
@@ -347,18 +348,28 @@ def run_app():
                             data = sheets_updater.read_sheet_data(sid.group(1))
                             if isinstance(data, pd.DataFrame) and not data.empty:
                                 inserted, skipped = importer._process_dataframe(data)
-                                st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}."); st.cache_data.clear(); st.rerun()
+                                st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}.")
+                                st.session_state.g_sheet_url = "" # Clear input
+                                st.cache_data.clear()
+                                st.rerun()
                             else: st.error(f"Could not read data from sheet. {data}")
                     else: st.warning("Please provide a valid Google Sheet URL.")
             
             elif import_option == "From local file (CSV/Excel)":
-                uploaded_file = st.file_uploader("Choose a CSV or Excel file for bulk import", type=["csv", "xls", "xlsx"])
+                uploaded_file = st.file_uploader(
+                    "Choose a CSV or Excel file for bulk import",
+                    type=["csv", "xls", "xlsx"],
+                    key=f"bulk_uploader_{st.session_state.uploader_key}"
+                )
                 if uploaded_file is not None:
                     if st.button("Import from File"):
                         with st.spinner("Processing file and importing..."):
                             status_msg, count = importer.import_from_local_file(uploaded_file)
                             st.success(status_msg)
-                            if count > 0: st.cache_data.clear(); st.rerun()
+                            if count > 0:
+                                st.session_state.uploader_key += 1 # Clear input
+                                st.cache_data.clear()
+                                st.rerun()
 
             elif import_option == "From single resume URL":
                 resume_link = st.text_input("Paste resume URL", key="resume_url_input")
@@ -368,24 +379,31 @@ def run_app():
                             applicant_id = importer.import_from_resume(resume_link)
                             if applicant_id:
                                 st.success(f"Successfully imported applicant. New ID: {applicant_id}")
-                                st.cache_data.clear(); st.rerun()
+                                st.session_state.resume_url_input = "" # Clear input
+                                st.cache_data.clear()
+                                st.rerun()
                             else: st.error("Failed to import from resume link.")
                     else: st.warning("Please provide a resume URL.")
             
             elif import_option == "From single resume file (PDF/DOCX)":
-                uploaded_resume = st.file_uploader("Upload a single resume", type=['pdf', 'docx'])
+                uploaded_resume = st.file_uploader(
+                    "Upload a single resume",
+                    type=['pdf', 'docx'],
+                    key=f"resume_uploader_{st.session_state.resume_uploader_key}"
+                )
                 if uploaded_resume:
                     if st.button("Import from Resume File"):
                         with st.spinner("Analyzing resume and creating profile..."):
                             applicant_id = importer.import_from_local_resume(uploaded_resume)
                             if applicant_id:
                                 st.success(f"Successfully imported applicant. New ID: {applicant_id}")
-                                st.cache_data.clear(); st.rerun()
+                                st.session_state.resume_uploader_key += 1 # Clear input
+                                st.cache_data.clear()
+                                st.rerun()
                             else:
                                 st.error("Failed to import from resume file.")
 
         st.session_state.importer_expanded = importer_was_rendered
-        # --- MODIFICATION END ---
 
 
     # --- Main Page UI ---
@@ -395,9 +413,17 @@ def run_app():
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
-    main_tab1, main_tab2 = st.tabs(["Applicant Dashboard", "⚙️ System Settings"])
+    # --- MODIFICATION START: Replace tabs with radio to maintain state ---
+    active_tab = st.radio(
+        "Main Navigation",
+        ["Applicant Dashboard", "⚙️ System Settings"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key='main_tab'  # The key will store the selected option in session state
+    )
 
-    with main_tab1:
+    if st.session_state.main_tab == "Applicant Dashboard":
+    # --- MODIFICATION END ---
         if st.session_state.view_mode == 'grid':
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
@@ -602,7 +628,10 @@ def run_app():
                                         st.error("Failed to send email.")
                             else:
                                 st.warning("Email body is too short.")
-    with main_tab2:
+
+    # --- MODIFICATION START: Logic for the second tab ---
+    elif st.session_state.main_tab == "⚙️ System Settings":
+    # --- MODIFICATION END ---
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
         st.divider()
@@ -617,10 +646,13 @@ def run_app():
                         if err: st.error(err)
                         else: st.success(f"Status '{status}' deleted."); st.cache_data.clear(); st.rerun()
             with st.form("new_status_form", clear_on_submit=True):
-                new_status = st.text_input("Add New Status", label_visibility="collapsed")
+                new_status = st.text_input("Add New Status", label_visibility="collapsed", key="new_status_input")
                 if st.form_submit_button("Add Status", use_container_width=True):
-                    if new_status and db_handler.add_status(new_status): st.success(f"Status '{new_status}' added."); st.cache_data.clear(); st.rerun()
-                    else: st.warning(f"Status '{new_status}' may already exist.")
+                    if new_status and db_handler.add_status(new_status):
+                        st.success(f"Status '{new_status}' added.")
+                        st.cache_data.clear()
+                        st.rerun()
+                    else: st.warning(f"Status '{new_status}' may already exist or is empty.")
         with col_interviewer:
             st.subheader("Interviewers")
             for _, interviewer in interviewer_list.iterrows():
@@ -629,9 +661,14 @@ def run_app():
                     if db_handler.delete_interviewer(interviewer['id']): st.success("Interviewer deleted."); st.cache_data.clear(); st.rerun()
                     else: st.error("Could not delete interviewer.")
             with st.form("new_interviewer_form", clear_on_submit=True):
-                st.write("Add New Interviewer"); name = st.text_input("Name"); email = st.text_input("Google Account Email")
+                st.write("Add New Interviewer")
+                name = st.text_input("Name", key="new_interviewer_name")
+                email = st.text_input("Google Account Email", key="new_interviewer_email")
                 if st.form_submit_button("Add Interviewer", use_container_width=True):
-                    if name and email and db_handler.add_interviewer(name, email): st.success("Interviewer added."); st.cache_data.clear(); st.rerun()
+                    if name and email and db_handler.add_interviewer(name, email):
+                        st.success("Interviewer added.")
+                        st.cache_data.clear()
+                        st.rerun()
                     else: st.warning("Please provide name and a unique email.")
         st.subheader("🔴 Danger Zone")
         with st.expander("Reset Application Data"):
