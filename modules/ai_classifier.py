@@ -21,7 +21,7 @@ class AIClassifier:
 
             company_roles = [
                 "LLM engineer", "AI/ML engineer", "SEO", "Full Stack Developer",
-                "Project manager", "content writer", "digital marketing", "QA engineer",
+                "Project manager", "Content", "digital marketing", "QA engineer",
                 "software developer", "UI/UX", "App developer", "graphic designer",
                 "videographer", "BDE", "HR", "PPC"
             ]
