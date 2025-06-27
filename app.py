@@ -23,6 +23,7 @@ from streamlit_quill import st_quill
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
+if 'active_detail_tab' not in st.session_state: st.session_state.active_detail_tab = "Profile"
 
 # --- Authentication Setup ---
 def create_flow():
@@ -407,7 +408,8 @@ def run_app():
                 row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"**{row['Name']}**")
+                # app.py line 451 (Corrected)
+                row_cols[1].markdown(f"<div style='padding-top: 0.5rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
                 row_cols[2].markdown(str(row['Role']))
                 row_cols[3].markdown(str(row['Status']))
                 row_cols[4].markdown(row['CreatedAt'].strftime('%d-%b-%Y'))
@@ -455,8 +457,26 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                tab_profile, tab_timeline, tab_comms = st.tabs(["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"])
-                with tab_profile:
+                # --- CORRECTED TAB IMPLEMENTATION ---
+                tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
+                
+                # The key for the radio widget itself stores the selected index (0, 1, or 2)
+                # We ensure it's initialized to 0 if it doesn't exist.
+                if f'detail_tab_index_{applicant_id}' not in st.session_state:
+                    st.session_state[f'detail_tab_index_{applicant_id}'] = 0
+                
+                selected_tab_index = st.radio(
+                    "Detail Navigation",
+                    options=range(len(tab_options)),
+                    format_func=lambda i: tab_options[i],
+                    index=st.session_state[f'detail_tab_index_{applicant_id}'], # Directly use the state variable
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key=f'detail_tab_index_{applicant_id}' # Use the same key to read and write the state
+                )
+                
+                # Render content based on the selected radio button index
+                if selected_tab_index == 0: # Corresponds to Profile & Actions
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
@@ -511,7 +531,8 @@ def run_app():
                                                 st.cache_data.clear(); st.rerun()
                                             else: st.error("Failed to create calendar event.")
                                 if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
-                with tab_timeline:
+
+                elif selected_tab_index == 1: # Corresponds to Feedback & Notes
                     st.subheader("Log a New Note")
                     with st.form("note_form_tab"):
                         history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
@@ -519,6 +540,7 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
+                                # No need to manually set the state, it's handled automatically by the radio key
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -529,7 +551,8 @@ def run_app():
                             else: st.warning("Note cannot be empty.")
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
-                with tab_comms:
+
+                elif selected_tab_index == 2: # Corresponds to Email Hub
                     st.subheader("Email Hub")
                     conversations = load_conversations(applicant_id)
                     with st.container(height=300):
@@ -575,7 +598,6 @@ def run_app():
                                         st.error("Failed to send email.")
                             else:
                                 st.warning("Email body is too short.")
-
     with main_tab2:
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
