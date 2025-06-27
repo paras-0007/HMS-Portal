@@ -274,10 +274,10 @@ def run_app():
 
     # --- Sidebar UI ---
     with st.sidebar:
-        st.header(f"Welcome, {st.session_state.user_info['given_name']}!")
+        st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
         
-        if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
+        if st.button("📧 Sync New Emails", use_container_width=True, type="primary"):
             try:
                 with st.spinner("Processing your inbox..."):
                     engine = ProcessingEngine(credentials)
@@ -456,24 +456,23 @@ def run_app():
                 st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
-                # --- NEW TAB IMPLEMENTATION ---
-                # We use st.radio styled as tabs for better state control
-                if 'active_detail_tab' not in st.session_state:
-                    st.session_state.active_detail_tab = 0
-
+                # --- CORRECTED TAB IMPLEMENTATION ---
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
                 
-                # Use a key and update session state to remember the selected tab
+                # The key for the radio widget itself stores the selected index (0, 1, or 2)
+                # We ensure it's initialized to 0 if it doesn't exist.
+                if f'detail_tab_index_{applicant_id}' not in st.session_state:
+                    st.session_state[f'detail_tab_index_{applicant_id}'] = 0
+                
                 selected_tab_index = st.radio(
                     "Detail Navigation",
                     options=range(len(tab_options)),
                     format_func=lambda i: tab_options[i],
-                    index=st.session_state.active_detail_tab,
+                    index=st.session_state[f'detail_tab_index_{applicant_id}'], # Directly use the state variable
                     horizontal=True,
                     label_visibility="collapsed",
-                    key=f"detail_radio_tabs_{applicant_id}"
+                    key=f'detail_tab_index_{applicant_id}' # Use the same key to read and write the state
                 )
-                st.session_state.active_detail_tab = selected_tab_index
                 
                 # Render content based on the selected radio button index
                 if selected_tab_index == 0: # Corresponds to Profile & Actions
@@ -540,8 +539,7 @@ def run_app():
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
                         if st.form_submit_button("Save Note", use_container_width=True):
                             if note_content:
-                                # Set the active tab index before the rerun
-                                st.session_state.active_detail_tab = 1
+                                # No need to manually set the state, it's handled automatically by the radio key
                                 notes = get_feedback_notes(applicant['Feedback'])
                                 new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
                                 notes.append(new_note)
@@ -573,8 +571,6 @@ def run_app():
 
                         if st.form_submit_button("Send Email", use_container_width=True, disabled=disable_form):
                             if email_body_content and len(email_body_content) > 15:
-                                # Set the active tab index before the rerun
-                                st.session_state.active_detail_tab = 2
                                 subject = f"Re: Your application for {applicant['Role']}"
                                 with st.spinner("Sending..."):
                                     thread_id = applicant['GmailThreadId'] if pd.notna(applicant['GmailThreadId']) else None
@@ -601,7 +597,6 @@ def run_app():
                                         st.error("Failed to send email.")
                             else:
                                 st.warning("Email body is too short.")
-
     with main_tab2:
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
