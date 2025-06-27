@@ -663,9 +663,8 @@ def run_app():
                             st.error("An error occurred while clearing the database.")
 
 
-# NEW, CORRECTED REFRESH-PROOF AUTHENTICATION FLOW
+# FINAL CORRECTED REFRESH-PROOF AUTHENTICATION FLOW
 # --- Authentication Flow ---
-# This should be one of the first commands run to ensure the manager is ready.
 cookie_manager = EncryptedCookieManager(
     password=st.secrets["COOKIE_PASSWORD"],
 )
@@ -675,11 +674,14 @@ if not cookie_manager.ready():
     st.stop()
 
 if 'credentials' not in st.session_state:
-    # Check if we have credentials in a cookie using the correct dictionary-like .get() method
+    # Check if we have credentials in a cookie
     credentials_cookie = cookie_manager.get("google_credentials")
     if credentials_cookie:
         try:
-            st.session_state.credentials = Credentials.from_authorized_user_info(credentials_cookie)
+            # First, parse the JSON string from the cookie back into a dictionary
+            creds_data = json.loads(credentials_cookie)
+            # Now, load the credentials from the dictionary
+            st.session_state.credentials = Credentials.from_authorized_user_info(creds_data)
             
             user_info_cookie = cookie_manager.get("user_info")
             if user_info_cookie:
@@ -687,7 +689,6 @@ if 'credentials' not in st.session_state:
             else:
                 user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
                 st.session_state.user_info = user_info_service.userinfo().get().execute()
-                # Use dictionary-style setting for simplicity and clarity
                 cookie_manager["user_info"] = st.session_state.user_info
 
         except Exception as e:
@@ -708,8 +709,8 @@ if 'credentials' not in st.session_state:
             st.session_state.user_info = user_info
             
             # On successful login, save credentials and user info to cookies
-            # Use dictionary-style setting
-            cookie_manager["google_credentials"] = st.session_state.credentials.to_authorized_user_info()
+            # Use the CORRECT .to_json() method to serialize credentials
+            cookie_manager["google_credentials"] = st.session_state.credentials.to_json()
             cookie_manager["user_info"] = user_info
 
             st.query_params.clear()
@@ -717,6 +718,10 @@ if 'credentials' not in st.session_state:
 
         except Exception as e:
             st.error(f"Error during authentication: {e}")
+            # To aid in debugging, you might want to log the full error
+            from utils.logger import logger
+            logger.error(f"Authentication failed: {e}", exc_info=True)
+            
     else:
         # Show the login page if no credentials can be found anywhere
         flow = create_flow()
