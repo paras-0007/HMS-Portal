@@ -11,4 +11,4 @@ streamlit-quill
 python-dotenv
 requests
 openpyxl
-streamlit-cookies-manager
+
