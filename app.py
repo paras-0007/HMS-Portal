@@ -71,10 +71,8 @@ if 'selected_applicant_id' not in st.session_state: st.session_state.selected_ap
 if 'confirm_delete' not in st.session_state: st.session_state.confirm_delete = False
 if 'schedule_view_active' not in st.session_state: st.session_state.schedule_view_active = False
 if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
-# --- MODIFICATION START: Add keys for clearing widgets ---
 if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 if 'resume_uploader_key' not in st.session_state: st.session_state.resume_uploader_key = 0
-# --- MODIFICATION END ---
 
 
 def run_app():
@@ -339,6 +337,8 @@ def run_app():
             importer_was_rendered = True
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
+
+            # --- MODIFICATION START: Add conditional help text ---
             if import_option == "From Google Sheet":
                 st.info(
                     """
@@ -376,6 +376,8 @@ def run_app():
                     """,
                     icon="ℹ️"
                 )
+            # --- MODIFICATION END ---
+            
             if import_option == "From Google Sheet":
                 sheet_url = st.text_input("Paste Google Sheet URL", key="g_sheet_url")
                 if st.button("Import from Sheet"):
@@ -449,23 +451,21 @@ def run_app():
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
-    # --- MODIFICATION START: Replace tabs with radio to maintain state ---
     active_tab = st.radio(
         "Main Navigation",
         ["Applicant Dashboard", "⚙️ System Settings"],
         horizontal=True,
         label_visibility="collapsed",
-        key='main_tab'  # The key will store the selected option in session state
+        key='main_tab'
     )
 
     if st.session_state.main_tab == "Applicant Dashboard":
-    # --- MODIFICATION END ---
         if st.session_state.view_mode == 'grid':
             def toggle_all(df):
                 select_all_value = st.session_state.get('select_all_checkbox', False)
                 for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
+            header_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
             header_cols[2].markdown("**Role**")
@@ -477,7 +477,7 @@ def run_app():
             selected_ids = []
             df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
             for _, row in df_display.iterrows():
-                row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
+                row_cols = st.columns([0.5, 3, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
@@ -665,9 +665,7 @@ def run_app():
                             else:
                                 st.warning("Email body is too short.")
 
-    # --- MODIFICATION START: Logic for the second tab ---
     elif st.session_state.main_tab == "⚙️ System Settings":
-    # --- MODIFICATION END ---
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
         st.divider()
