@@ -26,6 +26,31 @@ class DatabaseHandler:
             logger.error(f"Could not connect to the database: {e}")
             self.conn = None
 
+    def _populate_default_interviewers(self):
+        """Adds a predefined list of interviewers to the database."""
+        if not self.conn: return
+        default_interviewers = [
+            ('Paras', 'paras@infutrix.com'),
+            ('Gagan', 'gagan@infutrix.com'),
+            ('Sahil', 'sahil@infutrix.com'),
+            ('Divyam', 'divyam@infutrix.com'),
+            ('Radhika', 'radhika@infutrix.com'),
+            ('Srishti', 'srishti@infutrix.com'),
+            ('Ajay', 'ajay@infutrix.com'),
+            ('Kaushik', 'paraskaushik@infutrix.com'),
+            ('Devansh', 'devansh@infutrix.com')
+        ]
+        sql = "INSERT INTO interviewers (name, email) VALUES (%s, %s) ON CONFLICT (email) DO NOTHING;"
+        try:
+            with self.conn.cursor() as cur:
+                for interviewer in default_interviewers:
+                    cur.execute(sql, interviewer)
+                self.conn.commit()
+                logger.info("Default interviewers populated or already exist.")
+        except Exception as e:
+            logger.error(f"Error populating default interviewers: {e}")
+            self.conn.rollback()
+
     def create_tables(self):
         self._connect()
         if not self.conn: return
@@ -98,6 +123,7 @@ class DatabaseHandler:
             self.conn.rollback()
             return
         self._populate_initial_statuses()
+        self._populate_default_interviewers()
 
     def update_applicant_thread_id(self, applicant_id, thread_id):
         """Updates the gmail_thread_id for a given applicant."""
@@ -305,7 +331,19 @@ class DatabaseHandler:
         self._connect();
         if not self.conn: return []
         try:
-            with self.conn.cursor() as cur: cur.execute("SELECT status_name FROM applicant_statuses ORDER BY id;"); return [row[0] for row in cur.fetchall()]
+            with self.conn.cursor() as cur:
+                query = """
+                SELECT status_name FROM applicant_statuses
+                ORDER BY
+                    CASE
+                        WHEN status_name = 'New' THEN 1
+                        WHEN status_name = 'Hired' THEN 2
+                        WHEN status_name = 'Rejected' THEN 3
+                        ELSE 4
+                    END,
+                    status_name;
+                """
+                cur.execute(query); return [row[0] for row in cur.fetchall()]
         except Exception as e: logger.error(f"Error fetching statuses: {e}"); return []
     def add_status(self, status_name):
         self._connect();
