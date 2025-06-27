@@ -23,7 +23,7 @@ class AIClassifier:
                 "LLM engineer", "AI/ML engineer", "SEO", "Full Stack Developer",
                 "Project manager", "content writer", "digital marketing", "QA engineer",
                 "software developer", "UI/UX", "App developer", "graphic designer",
-                "videographer", "BDE(business developer executive)", "HR", "PPC"
+                "videographer", "BDE", "HR", "PPC"
             ]
 
             response = openai.chat.completions.create(
