@@ -58,18 +58,18 @@ class AIClassifier:
     def _extract_with_huggingface(self, combined_text, company_roles):
         """Extract using Hugging Face's free inference API."""
         try:
+            
             # Crafted prompt for better JSON extraction
-            prompt = f"""<s>[INST] You are an expert HR data extraction system. Extract information from the following application and return ONLY a valid JSON object with these exact keys:
+            # New prompt optimized for Zephyr-style models
+            prompt = f"""<|system|>
+            You are an expert HR data extraction system. Your task is to extract information from the provided text and return ONLY a single, valid JSON object with the specified keys. Do not include any other text, explanations, or conversational markers. The keys are: "Name", "Email", "Phone", "Education", "JobHistory", "Domain".</s>
+            <|user|>
+            Please analyze the following text and provide the JSON object.
 
-"Name": Full name of applicant
-"Email": Email address  
-"Phone": 10-digit mobile number (remove country codes like +91)
-"Education": Education background summary
-"JobHistory": Markdown bullet list of jobs with title, company, duration and 1-2 line summary
-"Domain": Primary role from these options: {', '.join(company_roles)}
-
-Text to analyze:
-{combined_text[:2000]}  
+            **Text to analyze:**
+            {combined_text[:2000]}</s>
+            <|assistant|>
+            """  
 
 Return only the JSON object, no other text: [/INST]"""
 
