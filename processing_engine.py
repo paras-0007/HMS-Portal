@@ -55,7 +55,21 @@ class ProcessingEngine:
         count = 0
 
         for applicant_id, thread_id in active_threads:
-            messages_in_thread = self.email_handler.fetch_new_messages_in_thread(thread_id)
+            try:
+                messages_in_thread = self.email_handler.fetch_new_messages_in_thread(thread_id)
+            except HttpError as e:
+                if e.resp.status == 404:
+                    logger.warning(f"Thread ID {thread_id} for applicant {applicant_id} not found (404). Setting it to NULL in the database to prevent future errors.")
+                    self.db_handler.update_applicant_thread_id(applicant_id, None)
+                else:
+                    logger.error(f"An HTTP error occurred for thread {thread_id}: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"A general error occurred while processing thread {thread_id}: {e}")
+                continue
+            
+            if not messages_in_thread:
+                continue
             
             convos = self.db_handler.get_conversations(applicant_id)
             known_ids = set(convos['gmail_message_id'].tolist()) if not convos.empty else set()
@@ -98,12 +112,19 @@ class ProcessingEngine:
             resume_text = self.file_processor.extract_text(file_path)
 
             ai_data = self.ai_classifier.extract_info(email_data['subject'], email_data['body'], resume_text)
+            if not ai_data or not ai_data.get('Name'):
+                logger.error(f"AI processing failed to extract essential data for email {msg_id}. The email will remain unread and will be retried in the next cycle.")
+                return
+            applicant_data = {**ai_data, 'Email': email_data['sender'], 'CV_URL': drive_url}
             
             applicant_data = {**ai_data, 'Email': email_data['sender'], 'CV_URL': drive_url}
             
             applicant_id = self.db_handler.insert_applicant_and_communication(applicant_data, email_data)
             
             if applicant_id:
+                self.email_handler.mark_as_read(msg_id)
+            else:
+                logger.warning(f"Applicant creation failed for email {msg_id}, likely a duplicate. Marking as read.")
                 self.email_handler.mark_as_read(msg_id)
         except Exception as e:
             logger.error(f"Failed to process email {msg_id}: {str(e)}", exc_info=True)
