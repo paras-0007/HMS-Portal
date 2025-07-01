@@ -15,7 +15,8 @@ class AIClassifier:
         # - "microsoft/DialoGPT-large" 
         # - "HuggingFaceH4/zephyr-7b-beta"
         # - "mistralai/Mixtral-8x7B-Instruct-v0.1" (if you need more power)
-        self.model = "mistralai/Mistral-7B-Instruct-v0.1"
+        # self.model = "mistralai/Mistral-7B-Instruct-v0.1"
+        self.model = "HuggingFaceH4/zephyr-7b-beta"
         
         # Fallback to local/offline model if HF API fails
         self.use_local_fallback = st.secrets.get("USE_LOCAL_FALLBACK", False)
