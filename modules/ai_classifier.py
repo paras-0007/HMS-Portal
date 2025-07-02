@@ -10,11 +10,7 @@ class AIClassifier:
         # Using Hugging Face's free API with a powerful model
         self.api_key = st.secrets.get("HUGGINGFACE_API_KEY", "")
         
-        # Using Mistral-7B-Instruct - excellent for structured extraction tasks
-        # Alternative models you can try:
-        # - "microsoft/DialoGPT-large" 
-        # - "HuggingFaceH4/zephyr-7b-beta"
-        # - "mistralai/Mixtral-8x7B-Instruct-v0.1" (if you need more power)
+        # Using Zephyr-7b-beta as it's a reliable alternative
         # self.model = "mistralai/Mistral-7B-Instruct-v0.1"
         self.model = "HuggingFaceH4/zephyr-7b-beta"
         
@@ -58,20 +54,16 @@ class AIClassifier:
     def _extract_with_huggingface(self, combined_text, company_roles):
         """Extract using Hugging Face's free inference API."""
         try:
-            
-            # Crafted prompt for better JSON extraction
             # New prompt optimized for Zephyr-style models
             prompt = f"""<|system|>
-            You are an expert HR data extraction system. Your task is to extract information from the provided text and return ONLY a single, valid JSON object with the specified keys. Do not include any other text, explanations, or conversational markers. The keys are: "Name", "Email", "Phone", "Education", "JobHistory", "Domain".</s>
-            <|user|>
-            Please analyze the following text and provide the JSON object.
+You are an expert HR data extraction system. Your task is to extract information from the provided text and return ONLY a single, valid JSON object with the specified keys. Do not include any other text, explanations, or conversational markers. The keys are: "Name", "Email", "Phone", "Education", "JobHistory", "Domain".</s>
+<|user|>
+Please analyze the following text and provide the JSON object.
 
-            **Text to analyze:**
-            {combined_text[:2000]}</s>
-            <|assistant|>
-            """  
-
-Return only the JSON object, no other text: [/INST]"""
+**Text to analyze:**
+{combined_text[:2000]}</s>
+<|assistant|>
+"""
 
             payload = {
                 "inputs": prompt,
@@ -316,7 +308,7 @@ Return only the JSON object, no other text: [/INST]"""
             return "Other"
 
     def _parse_and_clean_response(self, text):
-        
+        """Parse and clean the response from LLM."""
         try:
             # Try to extract JSON from the response
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
