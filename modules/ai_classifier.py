@@ -31,7 +31,7 @@ class AIClassifier:
             "Email": Email address
             "Phone": 10-digit mobile number (remove country codes like +91)
             "Education": A brief summary of their educational background
-            "JobHistory": A markdown bullet list of their recent jobs
+            "JobHistory": Markdown bullet list of jobs including the job title, company, duration, and a 1-2 line summary of their responsibilities or achievements in that role
             "Domain": Their primary role, chosen from these options: {', '.join(company_roles)}
 
             Text to analyze:
