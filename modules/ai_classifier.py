@@ -316,7 +316,7 @@ Return only the JSON object, no other text: [/INST]"""
             return "Other"
 
     def _parse_and_clean_response(self, text):
-        """Parse and clean the response from LLM."""
+        
         try:
             # Try to extract JSON from the response
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
