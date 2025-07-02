@@ -462,7 +462,14 @@ def run_app():
 
     if st.session_state.main_tab == "Applicant Dashboard":
         if st.session_state.view_mode == 'grid':
+            
+            def toggle_all(df):
+                select_all_value = st.session_state.get('select_all_checkbox', False)
+                for _, row in df.iterrows():
+                    st.session_state[f"select_{row['Id']}"] = select_all_value
+            
             st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
+            
             header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
             header_cols[0].markdown("")
             header_cols[1].markdown("**Name**")
