@@ -43,7 +43,7 @@ class AIClassifier:
             """
 
             # Set up the model and generate content
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-1.5-flash-latest'))
             response = model.generate_content(prompt)
 
             # Clean and parse the response
