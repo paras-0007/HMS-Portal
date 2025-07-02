@@ -462,36 +462,46 @@ def run_app():
 
     if st.session_state.main_tab == "Applicant Dashboard":
         if st.session_state.view_mode == 'grid':
-            def toggle_all(df):
-                select_all_value = st.session_state.get('select_all_checkbox', False)
-                for _, row in df.iterrows(): st.session_state[f"select_{row['Id']}"] = select_all_value
-            st.checkbox("Select/Deselect All", key="select_all_checkbox", on_change=toggle_all, args=(df_filtered,))
-            header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
-            header_cols[0].markdown("")
-            header_cols[1].markdown("**Name**")
-            header_cols[2].markdown("**Role**")
-            header_cols[3].markdown("**Status**")
-            header_cols[4].markdown("**Applied On**")
-            header_cols[5].markdown("**Last Action**")
-            st.divider()
             
+            # --- MODIFICATION START: Wrap the applicant list in a form ---
+            with st.form("applicant_selection_form"):
+                header_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
+                header_cols[1].markdown("**Name**")
+                header_cols[2].markdown("**Role**")
+                header_cols[3].markdown("**Status**")
+                header_cols[4].markdown("**Applied On**")
+                header_cols[5].markdown("**Last Action**")
+                st.divider()
+
+                df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
+                
+                # Loop through and display applicants with their checkboxes
+                for _, row in df_display.iterrows():
+                    row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
+                    row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
+                    row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
+                    row_cols[2].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
+                    row_cols[3].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
+                    row_cols[4].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
+                    last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
+                    row_cols[5].markdown(f"<div style='padding-top: 0.6rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
+                    row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
+                
+                # The submit button for the form
+                st.form_submit_button("Apply Selections")
+            # --- MODIFICATION END ---
+            
+            # This part remains outside the form. It reads the session state after the form is submitted.
             selected_ids = []
-            df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
-            for _, row in df_display.iterrows():
-                row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
-                is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
-                if is_selected: selected_ids.append(int(row['Id']))
-                row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
-                row_cols[2].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
-                row_cols[3].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
-                row_cols[4].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
-                last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
-                row_cols[5].markdown(f"<div style='padding-top: 0.6rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
-                row_cols[6].button("View Profile ➜", key=f"view_{row['Id']}", on_click=set_detail_view, args=(row['Id'],))
+            for _, row in df_filtered.iterrows():
+                if st.session_state.get(f"select_{row['Id']}", False):
+                    selected_ids.append(int(row['Id']))
             
             with st.sidebar:
-                st.divider(); st.header("🔥 Actions on Selected")
-                if not selected_ids: st.info("Select applicants from the dashboard.")
+                st.divider()
+                st.header("🔥 Actions on Selected")
+                if not selected_ids:
+                    st.info("Select applicants from the dashboard and click 'Apply Selections'.")
                 else:
                     st.success(f"**{len(selected_ids)} applicant(s) selected.**")
                     if st.button(f"Export {len(selected_ids)} to Sheet", use_container_width=True):
@@ -500,17 +510,28 @@ def run_app():
                             export_df['Feedback'] = export_df['Feedback'].apply(format_feedback_for_export)
                             cols = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
                             res = sheets_updater.create_export_sheet(export_df[cols].to_dict('records'), cols)
-                            if res: db_handler.insert_export_log(res['title'], res['url']); st.success("Export successful!"); st.rerun()
-                            else: st.error("Export failed.")
-                    if st.button(f"Delete {len(selected_ids)} Applicant(s)", type="primary", use_container_width=True): st.session_state.confirm_delete = True
+                            if res:
+                                db_handler.insert_export_log(res['title'], res['url'])
+                                st.success("Export successful!")
+                                st.rerun()
+                            else:
+                                st.error("Export failed.")
+                    if st.button(f"Delete {len(selected_ids)} Applicant(s)", type="primary", use_container_width=True):
+                        st.session_state.confirm_delete = True
                     if st.session_state.confirm_delete:
                         st.warning("This is permanent. Are you sure?", icon="⚠️")
-                        c1, c2 = st.columns(2);
+                        c1, c2 = st.columns(2)
                         if c1.button("✅ Yes, Delete", use_container_width=True, type="primary"):
-                            if db_handler.delete_applicants(selected_ids): st.success("Applicants deleted."); st.session_state.confirm_delete = False; st.cache_data.clear(); st.rerun()
-                            else: st.error("Deletion failed.")
-                        if c2.button("❌ Cancel", use_container_width=True): st.session_state.confirm_delete = False; st.rerun()
-
+                            if db_handler.delete_applicants(selected_ids):
+                                st.success("Applicants deleted.")
+                                st.session_state.confirm_delete = False
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error("Deletion failed.")
+                        if c2.button("❌ Cancel", use_container_width=True):
+                            st.session_state.confirm_delete = False
+                            st.rerun()
         elif st.session_state.view_mode == 'detail':
             applicant_df = df_all[df_all['Id'] == st.session_state.selected_applicant_id]
             if applicant_df.empty:
