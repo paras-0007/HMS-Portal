@@ -75,7 +75,7 @@ Please analyze the following text and provide the JSON object.
                 }
             }
 
-            response = requests.post(self.api_url, headers=self.headers, json=payload, timeout=30)
+            response = requests.post(self.api_url, headers=self.headers, json=payload, timeout=60)
             
             if response.status_code == 503:
                 # Model is loading, wait and retry
@@ -134,36 +134,32 @@ Please analyze the following text and provide the JSON object.
         }
 
     def _extract_name(self, email_body, resume_text):
-        """Extract name using multiple strategies."""
-        # Strategy 1: Look for "My name is", "I am", etc.
-        patterns = [
-            r"my name is ([A-Za-z\s]+)",
-            r"i am ([A-Za-z\s]+)",
-            r"this is ([A-Za-z\s]+)",
-            r"dear sir/madam,?\s*([A-Za-z\s]+)",
-            r"^([A-Z][a-z]+ [A-Z][a-z]+)",  # First line capitalized name
-        ]
+        """Extract name using multiple, improved strategies."""
         
-        text = f"{email_body} {resume_text}"
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-            if match:
-                name = match.group(1).strip()
-                # Validate it's a proper name (2-4 words, each capitalized)
-                words = name.split()
-                if 2 <= len(words) <= 4 and all(w.replace("'", "").isalpha() for w in words):
-                    return ' '.join(word.capitalize() for word in words)
-        
-        # Strategy 2: Extract from resume header (first few lines)
+        # Strategy 1: Look for a likely name in the first few lines of the resume.
+        # This is often the most reliable place to find the name.
         lines = resume_text.split('\n')[:5]
         for line in lines:
             line = line.strip()
-            # Look for lines that look like names
-            if re.match(r'^[A-Z][a-z]+ [A-Z][a-z]+', line) and len(line.split()) <= 4:
-                return line
-        
-        return "Unknown Applicant"
+            # A name is likely 2-4 words, capitalized, and contains only letters/spaces.
+            if re.fullmatch(r'([A-Z][a-z\']+ )+[A-Z][a-z\']+', line) and 2 <= len(line.split()) <= 4:
+                 # Avoid common non-name phrases
+                if not any(word in line.lower() for word in ['email', 'phone', 'profile', 'objective', 'summary']):
+                    return line
 
+        # Strategy 2: Look for common "My name is..." patterns in the email body.
+        text_to_search = f"{email_body}\n{resume_text}"
+        patterns = [
+            r"my name is\s+([A-Z][a-z]+ [A-Z][a-z\']+)",
+            r"i am\s+([A-Z][a-z]+ [A-Z][a-z\']+)"
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text_to_search, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+
+        return "Unknown Applicant"
+        
     def _extract_email(self, email_body, resume_text):
         """Extract email address."""
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
