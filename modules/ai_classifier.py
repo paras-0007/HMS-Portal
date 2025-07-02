@@ -56,9 +56,36 @@ class AIClassifier:
         except Exception as e:
             logger.error(f"An error occurred with the Google Gemini API: {str(e)}", exc_info=True)
             return None
+            
+    def _normalize_domain(self, domain_text):
+        """Normalizes different variations of a role into a standard name."""
+        if not domain_text:
+            return "Other"
+
+        domain_lower = domain_text.lower()
+
+        # Define mappings from keywords to a standard role name
+        role_map = {
+            "DevOps Engineer": ['devops', 'aws cloud engineer'],
+            "Full Stack Developer": ['full stack', 'fullstack'],
+            "AI/ML Engineer": ['ai/ml', 'machine learning', 'ml engineer'],
+            "QA Engineer": ['qa', 'quality assurance', 'testing'],
+            "Software Developer": ['software developer', 'software engineer'],
+            "Digital Marketing": ['digital marketing', 'ppc'],
+            "Content": ["content writing", "content creation", "copywriting"],
+            "UI/UX": ["ui/ux", "ui", "ux", "designer"]
+        }
+
+        for standard_role, keywords in role_map.items():
+            for keyword in keywords:
+                if keyword in domain_lower:
+                    return standard_role
+        
+        # If no keyword matches, return the original text capitalized
+        return domain_text.title()
 
     def extract_info(self, email_subject, email_body, resume_text):
-        """Extract structured data using a primary AI API or rule-based fallback."""
+        """Extract and normalize structured data using an AI API or rule-based fallback."""
         try:
             combined_text = (
                 f"EMAIL SUBJECT: {email_subject}\n\n"
@@ -66,21 +93,30 @@ class AIClassifier:
                 f"RESUME CONTENT: {resume_text}"
             )
 
+            # Consolidate company roles to a single source of truth
             company_roles = [
-                "LLM engineer", "AI/ML engineer", "SEO", "Full Stack Developer",
-                "Project manager", "Content", "digital marketing", "QA engineer",
-                "software developer", "UI/UX", "App developer", "graphic designer",
-                "videographer", "BDE", "HR", "PPC"
+                "LLM engineer", "AI/ML Engineer", "SEO", "Full Stack Developer",
+                "Project manager", "Content", "Digital Marketing", "QA Engineer",
+                "Software Developer", "UI/UX", "App developer", "graphic designer",
+                "videographer", "BDE", "HR", "DevOps Engineer"
             ]
 
             # Try Google Gemini API first
             result = self._extract_with_google_gemini(combined_text, company_roles)
             if result:
+                # Normalize the domain from the AI output
+                if 'Domain' in result:
+                    result['Domain'] = self._normalize_domain(result['Domain'])
                 return result
             
             logger.warning("Google Gemini API failed, trying rule-based fallback...")
             # Fallback to rule-based extraction
-            return self._extract_with_rules(email_subject, email_body, resume_text, company_roles)
+            fallback_result = self._extract_with_rules(email_subject, email_body, resume_text, company_roles)
+            
+            # Also normalize the domain from the fallback output
+            if 'Domain' in fallback_result:
+                fallback_result['Domain'] = self._normalize_domain(fallback_result['Domain'])
+            return fallback_result
             
         except Exception as e:
             logger.error(f"AI processing failed: {str(e)}", exc_info=True)
