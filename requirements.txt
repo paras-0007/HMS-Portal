@@ -1,4 +1,3 @@
-streamlit
 pandas
 psycopg2-binary
 openai
@@ -9,8 +8,8 @@ pdfplumber
 python-docx
 streamlit-quill
 python-dotenv
-requests
 openpyxl
-google-generativeai
+requests>=2.31.0
+streamlit>=1.28.0
 
 
