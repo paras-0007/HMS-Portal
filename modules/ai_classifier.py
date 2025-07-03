@@ -300,44 +300,60 @@ JSON:"""
                 "Domain": "Other"
             }
 
-    def _parse_and_clean_response(self, text):
-        """Parse and clean the response from LLM."""
-        try:
-            # Remove any markdown formatting
-            text = re.sub(r'```json\s*', '', text)
-            text = re.sub(r'```\s*', '', text)
-            text = text.strip()
+    import json
+import re
+from utils.logger import logger
+
+def _parse_and_clean_response(self, text):
+    """Parse and clean the response from LLM."""
+    try:
+        # Remove any markdown formatting
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*', '', text)
+        text = text.strip()
+        
+        # Find JSON object in the response
+        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            data = json.loads(json_str)
             
-            # Find JSON object in the response
-            json_match = re.search(r'\{.*\}', text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                data = json.loads(json_str)
-                
-                # Clean and validate phone number
-                if 'Phone' in data and data['Phone']:
-                    phone_digits = re.sub(r'\D', '', str(data['Phone']))
-                    if len(phone_digits) == 12 and phone_digits.startswith('91'):
-                        phone_digits = phone_digits[2:]
-                    data['Phone'] = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
-                
-                # Ensure all required fields exist
-                required_fields = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Domain']
-                for field in required_fields:
-                    if field not in data:
-                        data[field] = ""
-                
-                return data
-            else:
-                logger.warning("No valid JSON found in LLM response")
-                return None
-                
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON from LLM: {str(e)}")
+            # --- START: RECOMMENDED FIX ---
+
+            # Ensure complex fields like JobHistory and Education are stored as strings.
+            # If the LLM returns a structured dict/list, convert it to a JSON string.
+            if isinstance(data.get('JobHistory'), (dict, list)):
+                data['JobHistory'] = json.dumps(data['JobHistory'], indent=2)
+
+            if isinstance(data.get('Education'), (dict, list)):
+                data['Education'] = json.dumps(data['Education'], indent=2)
+
+            # --- END: RECOMMENDED FIX ---
+
+            # Clean and validate phone number
+            if 'Phone' in data and data['Phone']:
+                phone_digits = re.sub(r'\D', '', str(data['Phone']))
+                if len(phone_digits) == 12 and phone_digits.startswith('91'):
+                    phone_digits = phone_digits[2:]
+                data['Phone'] = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+            
+            # Ensure all required fields exist
+            required_fields = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Domain']
+            for field in required_fields:
+                if field not in data:
+                    data[field] = "" # Default to empty string if missing
+            
+            return data
+        else:
+            logger.warning("No valid JSON found in LLM response")
             return None
-        except Exception as e:
-            logger.error(f"Error parsing LLM response: {str(e)}")
-            return None
+            
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse JSON from LLM: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Error parsing LLM response: {str(e)}")
+        return None
 # import streamlit as st
 # import requests
 # import re
