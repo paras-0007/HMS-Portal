@@ -12,12 +12,30 @@ class AIClassifier:
         self.max_retries = 3
         self.retry_delay = 2  # seconds
 
-    def _extract_with_huggingface(self, combined_text, company_roles):
-        """Extract using Hugging Face's Qwen2.5-7B-Instruct model."""
-        logger.info("Attempting extraction with Hugging Face Qwen2.5-7B-Instruct...")
+    def _extract_with_huggingface_multiple_models(self, combined_text, company_roles):
+        """Extract using multiple Hugging Face models with fallback."""
+        logger.info("Attempting extraction with Hugging Face models...")
+        
+        # List of models to try in order of preference
+        models_to_try = [
+            {
+                "name": "microsoft/DialoGPT-medium",
+                "url": "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
+                "fast": True
+            },
+            {
+                "name": "google/flan-t5-base", 
+                "url": "https://api-inference.huggingface.co/models/google/flan-t5-base",
+                "fast": True
+            },
+            {
+                "name": "meta-llama/Llama-2-7b-chat-hf",
+                "url": "https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b-chat-hf",
+                "fast": False
+            }
+        ]
         
         try:
-            # Get API key from Streamlit secrets
             hf_token = st.secrets.get("HUGGINGFACE_API_TOKEN")
             if not hf_token:
                 logger.error("Hugging Face API token not found in secrets.")
@@ -28,83 +46,117 @@ class AIClassifier:
                 "Content-Type": "application/json"
             }
 
-            # Craft optimized prompt for Qwen2.5
-            prompt = f"""<|im_start|>system
-You are an expert HR data extraction system. Extract information from job applications and return ONLY a valid JSON object.
+            # Try each model
+            for model_info in models_to_try:
+                logger.info(f"Trying model: {model_info['name']}")
+                
+                # Simple extraction prompt that works with most models
+                prompt = f"""Extract information from this job application and return only JSON:
 
-Required JSON format:
-{{
-    "Name": "Full name of applicant",
-    "Email": "Email address", 
-    "Phone": "10-digit mobile number without country codes",
-    "Education": "Brief educational background summary",
-    "JobHistory": "Markdown bullet list of jobs with title, company, duration, and key responsibilities",
-    "Domain": "Primary role from these options: {', '.join(company_roles)}"
-}}
+{{"Name": "full name", "Email": "email", "Phone": "phone", "Education": "education", "JobHistory": "job history", "Domain": "role"}}
 
-Rules:
-- Return ONLY the JSON object, no explanations
-- Phone numbers: remove +91 country codes, keep only 10 digits
-- Domain must be one of the provided options or "Other"
-- If information is missing, use appropriate defaults
-<|im_end|>
-<|im_start|>user
-Extract information from this job application:
+Text: {combined_text[:2000]}
 
-{combined_text[:4000]}
-<|im_end|>
-<|im_start|>assistant"""
+JSON:"""
 
-            payload = {
-                "inputs": prompt,
-                "parameters": {
-                    "max_new_tokens": 800,
-                    "temperature": 0.1,
-                    "do_sample": False,
-                    "return_full_text": False,
-                    "stop": ["<|im_end|>"]
+                payload = {
+                    "inputs": prompt,
+                    "parameters": {
+                        "max_new_tokens": 400,
+                        "temperature": 0.1,
+                        "do_sample": False,
+                        "return_full_text": False
+                    }
                 }
-            }
 
-            # Retry logic for API calls
-            for attempt in range(self.max_retries):
                 try:
+                    timeout = 15 if model_info["fast"] else 25
                     response = requests.post(
-                        self.hf_api_url,
+                        model_info["url"],
                         headers=headers,
                         json=payload,
-                        timeout=30
+                        timeout=timeout
                     )
                     
                     if response.status_code == 503:
-                        # Model is loading, wait and retry
-                        logger.info(f"Model loading, waiting {self.retry_delay} seconds... (attempt {attempt + 1})")
-                        time.sleep(self.retry_delay)
+                        logger.info(f"Model {model_info['name']} is loading, trying next model...")
                         continue
                     
-                    response.raise_for_status()
-                    result = response.json()
-                    
-                    if isinstance(result, list) and len(result) > 0:
-                        generated_text = result[0].get('generated_text', '')
-                    else:
-                        generated_text = result.get('generated_text', '')
-                    
-                    if generated_text:
-                        return self._parse_and_clean_response(generated_text)
-                    else:
-                        logger.warning("Empty response from Hugging Face API")
-                        return None
+                    if response.status_code == 200:
+                        result = response.json()
                         
+                        if isinstance(result, list) and len(result) > 0:
+                            generated_text = result[0].get('generated_text', '')
+                        else:
+                            generated_text = result.get('generated_text', '')
+                        
+                        if generated_text:
+                            parsed_result = self._parse_and_clean_response(generated_text)
+                            if parsed_result and parsed_result.get('Name'):
+                                logger.info(f"Success with model: {model_info['name']}")
+                                return parsed_result
+                    
+                    logger.warning(f"Model {model_info['name']} failed with status: {response.status_code}")
+                    
                 except requests.exceptions.RequestException as e:
-                    logger.error(f"Request failed (attempt {attempt + 1}): {str(e)}")
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
-                    else:
-                        return None
+                    logger.warning(f"Model {model_info['name']} failed: {str(e)}")
+                    continue
+
+            return None
 
         except Exception as e:
-            logger.error(f"Hugging Face API error: {str(e)}", exc_info=True)
+            logger.error(f"All Hugging Face models failed: {str(e)}", exc_info=True)
+            return None
+
+    def _extract_with_groq_api(self, combined_text, company_roles):
+        """Extract using Groq API as a fast alternative."""
+        logger.info("Attempting extraction with Groq API...")
+        
+        try:
+            groq_token = st.secrets.get("GROQ_API_KEY")
+            if not groq_token:
+                logger.info("Groq API key not found, skipping...")
+                return None
+
+            headers = {
+                "Authorization": f"Bearer {groq_token}",
+                "Content-Type": "application/json"
+            }
+
+            prompt = f"""Extract information from this job application and return ONLY a valid JSON object:
+
+{{"Name": "full name", "Email": "email", "Phone": "10-digit phone", "Education": "education", "JobHistory": "job history", "Domain": "role from: {', '.join(company_roles)}"}}
+
+Application: {combined_text[:3000]}
+
+JSON:"""
+
+            payload = {
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "model": "llama3-8b-8192",
+                "temperature": 0.1,
+                "max_tokens": 500
+            }
+
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                return self._parse_and_clean_response(content)
+            else:
+                logger.warning(f"Groq API failed with status: {response.status_code}")
+                return None
+
+        except Exception as e:
+            logger.info(f"Groq API not available: {str(e)}")
             return None
 
     def _extract_with_ollama_fallback(self, combined_text, company_roles):
@@ -203,10 +255,17 @@ JSON:"""
                 "Videographer", "BDE", "HR", "DevOps Engineer", "Data Scientist"
             ]
 
-            # Try Hugging Face API first
-            result = self._extract_with_huggingface(combined_text, company_roles)
+            # Try Groq API first (fastest)
+            result = self._extract_with_groq_api(combined_text, company_roles)
             if result:
-                # Normalize the domain
+                if 'Domain' in result:
+                    result['Domain'] = self._normalize_domain(result['Domain'])
+                return result
+            
+            # Try Hugging Face models
+            logger.warning("Groq API failed, trying Hugging Face models...")
+            result = self._extract_with_huggingface_multiple_models(combined_text, company_roles)
+            if result:
                 if 'Domain' in result:
                     result['Domain'] = self._normalize_domain(result['Domain'])
                 return result
@@ -279,10 +338,6 @@ JSON:"""
         except Exception as e:
             logger.error(f"Error parsing LLM response: {str(e)}")
             return None
-
-
-
-
 # import streamlit as st
 # import requests
 # import re
