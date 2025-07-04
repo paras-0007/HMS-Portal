@@ -5,7 +5,7 @@ from utils.logger import logger
 class AIClassifier:
     def __init__(self):
         # The IP address of your GPU server.
-        self.api_endpoint = "[http://43.204.254.233:8000/extract](http://43.204.254.233:8000/extract)"
+        self.api_endpoint = "http://43.204.254.233:8000/extract"
 
     def extract_info(self, email_subject, email_body, resume_text):
         """
