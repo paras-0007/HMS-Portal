@@ -7,64 +7,83 @@ class AIClassifier:
         # The IP address of your GPU server.
         self.api_endpoint = "http://43.204.254.233:8503/extract"
 
+    def _normalize_domain(self, domain_text):
+        """
+        Normalizes different variations of a role into a standard name.
+        This function is restored to improve data consistency.
+        """
+        if not domain_text:
+            return "Other"
+
+        domain_lower = domain_text.lower()
+        role_map = {
+            "DevOps Engineer": ['devops', 'aws cloud engineer'],
+            "Full Stack Developer": ['full stack', 'fullstack'],
+            "AI/ML Engineer": ['ai/ml', 'machine learning', 'ml engineer', 'llm engineer'],
+            "QA Engineer": ['qa', 'quality assurance', 'testing'],
+            "Software Developer": ['software developer', 'software engineer'],
+            "Digital Marketing": ['digital marketing', 'ppc', 'seo'],
+            "Content": ["content writing", "content creation", "copywriting"],
+            "UI/UX": ["ui/ux", "ui", "ux", "designer", "graphic designer"],
+            "Project Manager": ["project manager", "project management"],
+            "Business Development": ["bde", "business development", "sales"],
+            "HR": ["hr", "human resources", "recruitment"]
+        }
+
+        for standard_role, keywords in role_map.items():
+            for keyword in keywords:
+                if keyword in domain_lower:
+                    return standard_role
+        
+        return domain_text.title()
+
     def extract_info(self, email_subject, email_body, resume_text):
         """
         Extracts structured data by calling the self-hosted LLM API.
-        The rule-based fallback has been removed.
+        If the server is down, it raises a ConnectionError to halt the process.
         """
         logger.info(f"Sending text to self-hosted LLM at: {self.api_endpoint}")
 
-        # Combine all text sources into one payload
         combined_text = (
             f"EMAIL SUBJECT: {email_subject}\n\n"
             f"EMAIL BODY: {email_body}\n\n"
             f"RESUME CONTENT: {resume_text}"
         )
 
-        # These are the roles the model can choose from.
         company_roles = [
-            "LLM Engineer", "AI/ML Engineer", "SEO", "Full Stack Developer",
-            "Project Manager", "Content", "Digital Marketing", "QA Engineer",
-            "Software Developer", "UI/UX", "App Developer", "Graphic Designer",
-            "Videographer", "BDE", "HR", "DevOps Engineer", "Other"
+            "LLM engineer", "AI/ML Engineer", "SEO", "Full Stack Developer",
+            "Project manager", "Content", "Digital Marketing", "QA Engineer",
+            "Software Developer", "UI/UX", "App developer", "graphic designer",
+            "videographer", "BDE", "HR", "DevOps Engineer", "Other"
         ]
         
-        # Prepare the data for the POST request
         payload = {
             "text": combined_text,
             "roles": company_roles
         }
 
         try:
-            # Make the API call to your server
-            response = requests.post(self.api_endpoint, json=payload, timeout=120) # 120-second timeout
-            
-            # Raise an exception if the request failed (e.g., 4xx or 5xx error)
+            response = requests.post(self.api_endpoint, json=payload, timeout=120)
             response.raise_for_status()
             
-            # The server already returns a clean JSON object
             extracted_data = response.json()
             logger.info(f"Successfully received data from LLM: {extracted_data.get('Name')}")
-            
+
+            # --- ADDED: Normalize the domain after successful extraction ---
+            if 'Domain' in extracted_data:
+                extracted_data['Domain'] = self._normalize_domain(extracted_data['Domain'])
+
             return extracted_data
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Could not connect to the LLM server: {e}", exc_info=True)
-            # Return a default structure on failure so the app doesn't crash
-            return {
-                "Name": "Extraction Failed", "Email": "", "Phone": "",
-                "Education": "Could not connect to the AI server.",
-                "JobHistory": "Could not connect to the AI server.",
-                "Domain": "Other"
-            }
+            # --- MODIFIED: Raise an error instead of returning a failed dictionary ---
+            raise ConnectionError("LLM server is not reachable. Please ensure it's running and the port is open.")
+        
         except Exception as e:
             logger.error(f"An unexpected error occurred during AI classification: {e}", exc_info=True)
-            return {
-                "Name": "Extraction Failed", "Email": "", "Phone": "",
-                "Education": "An unexpected error occurred.",
-                "JobHistory": "An unexpected error occurred.",
-                "Domain": "Other"
-            }
+            # Also raise an error for other unexpected issues
+            raise
 
 
 # import streamlit as st
