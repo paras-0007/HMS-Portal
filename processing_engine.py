@@ -4,6 +4,7 @@ from modules.drive_handler import DriveHandler
 from modules.pdf_processor import FileProcessor
 from modules.ai_classifier import AIClassifier
 from modules.database_handler import DatabaseHandler
+from googleapiclient.errors import HttpError
 
 class ProcessingEngine:
     def __init__(self, credentials):
@@ -20,19 +21,18 @@ class ProcessingEngine:
     def run_once(self):
         """
         Runs one full cycle of processing new applications and replies.
+        This is kept for any non-interactive script use, but the UI now uses granular methods.
         Returns a summary of the actions taken.
         """
         logger.info("Starting a single run of the processing engine.")
         self.db_handler.create_tables() # Ensure tables exist
         
-        # Log API key pool status at the start
         api_stats = self.ai_classifier.get_api_pool_status()
         logger.info(f"API Key Pool Status: {api_stats}")
         
-        new_apps, failed_classifications = self._process_new_applications()
-        new_replies = self._process_replies()
+        new_apps, failed_classifications = self.process_new_applications()
+        new_replies = self.process_replies()
 
-        # Log final API key pool status
         final_api_stats = self.ai_classifier.get_api_pool_status()
         logger.info(f"Final API Key Pool Status: {final_api_stats}")
 
@@ -45,7 +45,8 @@ class ProcessingEngine:
         logger.info(summary)
         return summary
 
-    def _process_new_applications(self):
+    def process_new_applications(self):
+        """UI-driven method to process all new application emails."""
         logger.info("Checking for new applications...")
         messages = self.email_handler.fetch_unread_emails()
         if not messages:
@@ -59,7 +60,7 @@ class ProcessingEngine:
             if msg['id'] in self.processed_message_ids_this_run:
                 continue
             
-            success = self._process_single_email(msg['id'])
+            success = self.process_single_email(msg['id'])
             self.processed_message_ids_this_run.add(msg['id'])
             
             if success:
@@ -69,7 +70,8 @@ class ProcessingEngine:
         
         return successful_count, failed_count
 
-    def _process_replies(self):
+    def process_replies(self):
+        """UI-driven method to process all replies in active threads."""
         logger.info("Checking for replies in active threads...")
         active_threads = self.db_handler.get_active_threads()
         count = 0
@@ -116,9 +118,10 @@ class ProcessingEngine:
                 logger.info(f"New reply from applicant {applicant_id} (message: {msg_id}) has been saved.")
         return count
 
-    def _process_single_email(self, msg_id) -> bool:
+    def process_single_email(self, msg_id) -> bool:
         """
-        Process a single email and return True if successful, False if failed.
+        Process a single email. Renamed to be public for UI orchestration.
+        Returns True if successful, False if failed.
         """
         logger.info(f"Processing new application with email ID: {msg_id}")
         try:
