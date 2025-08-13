@@ -11,6 +11,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from typing import Dict, Any
 
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
@@ -20,6 +21,7 @@ from modules.sheet_updater import SheetsUpdater
 from processing_engine import ProcessingEngine
 from modules.importer import Importer
 from streamlit_quill import st_quill
+from utils.logger import logger
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
@@ -40,23 +42,23 @@ def create_flow():
             "web": {
                 "client_id": st.secrets["GOOGLE_CLIENT_ID"],
                 "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "auth_uri": "[https://accounts.google.com/o/oauth2/auth](https://accounts.google.com/o/oauth2/auth)",
+                "token_uri": "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+                "auth_provider_x509_cert_url": "[https://www.googleapis.com/oauth2/v1/certs](https://www.googleapis.com/oauth2/v1/certs)",
                 "redirect_uris": [st.secrets["REDIRECT_URI"]],
             }
         }
         redirect_uri = st.secrets["REDIRECT_URI"]
 
     scopes = [
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'https://www.googleapis.com/auth/userinfo.email',
+        '[https://www.googleapis.com/auth/userinfo.profile](https://www.googleapis.com/auth/userinfo.profile)',
+        '[https://www.googleapis.com/auth/userinfo.email](https://www.googleapis.com/auth/userinfo.email)',
         'openid',
-        'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/gmail.modify',
-        'https://www.googleapis.com/auth/drive.file',
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/calendar'
+        '[https://www.googleapis.com/auth/gmail.readonly](https://www.googleapis.com/auth/gmail.readonly)',
+        '[https://www.googleapis.com/auth/gmail.modify](https://www.googleapis.com/auth/gmail.modify)',
+        '[https://www.googleapis.com/auth/drive.file](https://www.googleapis.com/auth/drive.file)',
+        '[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)',
+        '[https://www.googleapis.com/auth/calendar](https://www.googleapis.com/auth/calendar)'
     ]
     
     return Flow.from_client_config(
@@ -73,6 +75,7 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
 if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 if 'resume_uploader_key' not in st.session_state: st.session_state.resume_uploader_key = 0
+if 'show_sync_dialog' not in st.session_state: st.session_state.show_sync_dialog = False
 
 
 def run_app():
@@ -86,7 +89,7 @@ def run_app():
             token_to_revoke = creds.refresh_token or creds.token
             if token_to_revoke:
                 try:
-                    requests.post('https://oauth2.googleapis.com/revoke',
+                    requests.post('[https://oauth2.googleapis.com/revoke](https://oauth2.googleapis.com/revoke)',
                         params={'token': token_to_revoke},
                         headers={'content-type': 'application/x-www-form-urlencoded'})
                 except Exception:
@@ -330,77 +333,59 @@ def run_app():
                     st.markdown(f"**Note for: {note['stage']}** | <small>Logged on: {time_str}</small>", unsafe_allow_html=True)
                     st.markdown(note['note'])
 
+    # --- MODIFICATION START: Refactored API monitoring function ---
+    def render_api_monitoring(stats: Dict[str, Any]):
+        """Render API key pool monitoring information from a stats dictionary."""
+        st.subheader("🔑 API Key Pool Live Status")
+        
+        # Overall status
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Keys", stats.get("total_keys", 0))
+        col2.metric("Available", stats.get("available_keys", 0))
+        col3.metric("Rate Limited", stats.get("rate_limited_keys", 0))
+        col4.metric("Failed", stats.get("failed_keys", 0))
 
-    def render_api_monitoring(ai_classifier):
-        """Render API key pool monitoring information."""
-        with st.expander("🔑 API Key Pool Status", expanded=False):
-            stats = ai_classifier.get_api_pool_status()
-            
-            # Overall status
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Keys", stats["total_keys"])
-            
-            with col2:
-                st.metric("Available Keys", stats["available_keys"], 
-                        delta=None if stats["available_keys"] == stats["total_keys"] else f"-{stats['total_keys'] - stats['available_keys']}")
-            
-            with col3:
-                st.metric("Rate Limited", stats["rate_limited_keys"])
-            
-            with col4:
-                st.metric("Failed Keys", stats["failed_keys"])
-            
-            # Status indicator
-            if stats["available_keys"] == 0:
-                st.error("⚠️ No API keys available! Classification will fail until keys become available.")
-            elif stats["available_keys"] < stats["total_keys"] * 0.3:  # Less than 30% available
-                st.warning(f"⚠️ Low API key availability: {stats['available_keys']}/{stats['total_keys']} keys available")
-            else:
-                st.success(f"✅ API key pool healthy: {stats['available_keys']}/{stats['total_keys']} keys available")
-            
-            # Usage statistics
-            if stats["usage_counts"]:
-                st.subheader("Key Usage Statistics")
-                usage_data = []
-                for i, (key, count) in enumerate(stats["usage_counts"].items(), 1):
-                    key_status = "🔴 Failed" if key in ai_classifier.api_key_pool.failed_keys else (
-                        "🟡 Rate Limited" if key in ai_classifier.api_key_pool.rate_limited_keys else "🟢 Available"
-                    )
-                    usage_data.append({
-                        "Key": f"Key {i} ({key[:8]}...)",
-                        "Status": key_status,
-                        "Usage Count": count
-                    })
+        # Status indicator
+        available = stats.get("available_keys", 0)
+        total = stats.get("total_keys", 1) # Avoid division by zero
+        if available == 0:
+            st.error("⚠️ No API keys available! Classification will fail.")
+        elif available / total < 0.3:
+            st.warning(f"⚠️ Low API key availability: {available}/{total} keys available")
+        else:
+            st.success(f"✅ API key pool healthy: {available}/{total} keys available")
+        
+        # Usage statistics
+        if stats.get("usage_counts"):
+            st.caption("Key Usage Statistics")
+            usage_data = []
+            key_statuses = stats.get("key_statuses", {})
+            for i, (key, count) in enumerate(stats["usage_counts"].items(), 1):
+                status = key_statuses.get(key, "Unknown")
+                if status == "Failed": status_str = "🔴 Failed"
+                elif status == "Rate Limited": status_str = "🟡 Rate Limited"
+                else: status_str = "🟢 Available"
                 
-                st.dataframe(usage_data, use_container_width=True)
-
+                usage_data.append({
+                    "Key": f"Key {i} ({key[:8]}...)",
+                    "Status": status_str,
+                    "Usage Count": count
+                })
+            
+            st.dataframe(usage_data, use_container_width=True, height=150)
+    # --- MODIFICATION END ---
                 
     # --- Sidebar UI ---
     with st.sidebar:
         st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
 
-        from modules.ai_classifier import AIClassifier
-        temp_classifier = AIClassifier()
-        render_api_monitoring(temp_classifier)
-
-
+        # --- MODIFICATION START: Replaced API monitor with live sync button ---
         if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
-            try:
-                with st.spinner("Processing your inbox..."):
-                    engine = ProcessingEngine(credentials)
-                    summary = engine.run_once()
-                    st.success(summary)
-                    st.cache_data.clear()
-                    st.rerun()
-            except HttpError as e:
-                if e.resp.status == 401: st.error("Authentication error. Please log out and log back in.", icon="🚨")
-                else: st.error(f"An error occurred: {e}", icon="🚨")
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}", icon="🚨")
-                
+            st.session_state.show_sync_dialog = True
+            st.rerun()
+        # --- MODIFICATION END ---
+            
         if st.button("Logout", use_container_width=True, on_click=logout):
             pass
         st.divider()
@@ -445,62 +430,130 @@ def run_app():
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
             
-            # --- MODIFICATION START: Refactored importer with callbacks ---
             if import_option == "From Google Sheet":
-                st.text_input(
-                    "Paste Google Sheet URL",
-                    key="g_sheet_url",
-                     help="""
-                    - Your Google Sheet must be public or shared.
-                    - The first row must be the header.
-                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
-                    """
-                )
+                st.text_input("Paste Google Sheet URL", key="g_sheet_url", help="""- Your Google Sheet must be public or shared.\n- The first row must be the header.\n- Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status""")
                 st.button("Import from Sheet", on_click=handle_google_sheet_import)
             
             elif import_option == "From local file (CSV/Excel)":
-                st.file_uploader(
-                    "Choose a CSV or Excel file for bulk import",
-                    type=["csv", "xls", "xlsx"],
-                    key=f"bulk_uploader_{st.session_state.uploader_key}",
-                    help="""
-                    - Supported formats: CSV, XLS, XLSX.
-                    - The first row must be the header.
-                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
-                    """
-                )
+                st.file_uploader("Choose a CSV or Excel file for bulk import", type=["csv", "xls", "xlsx"], key=f"bulk_uploader_{st.session_state.uploader_key}", help="""- Supported formats: CSV, XLS, XLSX.\n- The first row must be the header.\n- Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status""")
                 if st.session_state[f"bulk_uploader_{st.session_state.uploader_key}"]:
                     st.button("Import from File", on_click=handle_bulk_file_import)
 
             elif import_option == "From single resume URL":
-                st.text_input(
-                    "Paste resume URL",
-                    key="resume_url_input",
-                    help="""
-                    - Paste a direct download link to a resume file.
-                    - For Google Drive, set sharing to "Anyone with the link".
-                    """
-                )
+                st.text_input("Paste resume URL", key="resume_url_input", help="""- Paste a direct download link to a resume file.\n- For Google Drive, set sharing to "Anyone with the link".""")
                 st.button("Import from Resume URL", on_click=handle_resume_url_import)
             
             elif import_option == "From single resume file (PDF/DOCX)":
-                st.file_uploader(
-                    "Upload a single resume",
-                    type=['pdf', 'docx'],
-                    key=f"resume_uploader_{st.session_state.resume_uploader_key}",
-                    help="- Upload a single resume in PDF or DOCX format."
-                )
+                st.file_uploader("Upload a single resume", type=['pdf', 'docx'], key=f"resume_uploader_{st.session_state.resume_uploader_key}", help="- Upload a single resume in PDF or DOCX format.")
                 if st.session_state[f"resume_uploader_{st.session_state.resume_uploader_key}"]:
                     st.button("Import from Resume File", on_click=handle_local_resume_import)
-            # --- MODIFICATION END ---
 
         st.session_state.importer_expanded = importer_was_rendered
 
+    # --- MODIFICATION START: Live Sync Dialog ---
+    if st.session_state.show_sync_dialog:
+        @st.dialog("🚀 Real-time Sync & API Status", width="large")
+        def sync_dialog():
+            # --- UI Placeholders ---
+            st.info("Sync process initiated. Please monitor the logs below.")
+            progress_bar = st.progress(0, text="Initializing...")
+            api_status_container = st.empty()
+            st.markdown("---")
+            st.subheader("📜 Live Log")
+            log_container = st.container(height=300)
+            log_messages = st.session_state.get("sync_log_messages", [])
+
+            def log_message(msg):
+                log_messages.append(f"[{datetime.datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%H:%M:%S')}] {msg}")
+                st.session_state.sync_log_messages = log_messages
+                with log_container:
+                    st.code("\n".join(log_messages[-20:]), language="log")
+
+            def update_api_display(engine_instance):
+                with api_status_container:
+                    stats = engine_instance.get_classification_status()
+                    render_api_monitoring(stats)
+            
+            # --- Processing Logic ---
+            try:
+                # 1. Initialization
+                engine = ProcessingEngine(credentials)
+                engine.db_handler.create_tables()
+                if not log_messages:
+                    log_message("Engine initialized. Checking for new applications...")
+                update_api_display(engine)
+                
+                # 2. Process New Applications
+                progress_bar.progress(5, text="Fetching new applications...")
+                messages = engine.email_handler.fetch_unread_emails()
+                
+                new_app_count = 0
+                failed_app_count = 0
+
+                if not messages:
+                    log_message("No new applications found.")
+                else:
+                    log_message(f"Found {len(messages)} new email(s) to process.")
+                    total_steps = len(messages)
+                    for i, msg in enumerate(messages):
+                        percent_done = 5 + int(45 * (i + 1) / total_steps)
+                        progress_bar.progress(percent_done, text=f"Processing application {i+1}/{len(messages)}...")
+                        log_message(f"-> Processing email ID: ...{msg['id'][-12:]}")
+                        
+                        update_api_display(engine) 
+                        success = engine.process_single_email(msg['id'])
+                        
+                        if success:
+                            new_app_count += 1
+                            log_message(f"✅ SUCCESS: Saved new applicant from email ...{msg['id'][-12:]}")
+                        else:
+                            failed_app_count += 1
+                            log_message(f"⚠️ FAILED: Could not process email ...{msg['id'][-12:]}. Check server logs for details.")
+                        
+                        update_api_display(engine)
+                
+                # 3. Process Replies
+                progress_bar.progress(50, text="Checking for replies...")
+                log_message("Checking for replies in active threads...")
+                reply_count = engine.process_replies()
+                log_message(f"Found and saved {reply_count} new reply/replies.")
+
+                # 4. Finalization
+                progress_bar.progress(100, text="Sync complete!")
+                summary = f"Sync finished! Processed {new_app_count} new applications ({failed_app_count} failures) and {reply_count} replies."
+                st.success(summary)
+                log_message(f"🎉 {summary}")
+                
+                if st.button("Close and Refresh Dashboard"):
+                    st.session_state.show_sync_dialog = False
+                    del st.session_state.sync_log_messages
+                    st.cache_data.clear()
+                    st.rerun()
+
+            except Exception as e:
+                st.error(f"A critical error occurred: {e}")
+                logger.error("Critical error during sync dialog", exc_info=True)
+                if st.button("Close"):
+                    st.session_state.show_sync_dialog = False
+                    del st.session_state.sync_log_messages
+                    st.rerun()
+
+        if "sync_instance_started" not in st.session_state:
+             st.session_state.sync_instance_started = True
+             st.session_state.sync_log_messages = []
+        
+        sync_dialog()
+    else:
+        # Cleanup state if dialog was closed without the button
+        if "sync_instance_started" in st.session_state:
+            del st.session_state.sync_instance_started
+        if "sync_log_messages" in st.session_state:
+            del st.session_state.sync_log_messages
 
     # --- Main Page UI ---
     st.title("Hiring Management System")
     df_all = load_all_applicants()
-    st.markdown(f"### Displaying Applicants: {len(df_all)}")
+    st.markdown(f"### Displaying Applicants: {len(df_filtered)}")
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
@@ -511,7 +564,8 @@ def run_app():
         label_visibility="collapsed",
         key='main_tab'
     )
-
+    
+    # ... (The rest of the app.py file remains unchanged) ...
     if st.session_state.main_tab == "Applicant Dashboard":
         if st.session_state.view_mode == 'grid':
             
@@ -760,34 +814,7 @@ def run_app():
                         st.cache_data.clear()
                         st.rerun()
                     else: st.warning("Please provide name and a unique email.")
-        # st.subheader("🔴 Danger Zone")
-        # with st.expander("Reset Application Data"):
-        #     st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
-            
-        #     if 'confirm_delete_db' not in st.session_state:
-        #         st.session_state.confirm_delete_db = False
-
-        #     if st.button("Initiate Database Reset", type="primary"):
-        #         st.session_state.confirm_delete_db = True
-            
-        #     if st.session_state.confirm_delete_db:
-        #         st.write("To confirm, please type **DELETE ALL DATA** in the box below.")
-        #         confirmation_text = st.text_input("Confirmation Phrase", placeholder="DELETE ALL DATA")
-                
-        #         if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
-        #             with st.spinner("Deleting all data and resetting tables..."):
-        #                 if db_handler.clear_all_tables():
-        #                     st.success("Database cleared successfully.")
-        #                     db_handler.create_tables()
-        #                     st.info("Application tables have been reset.")
-        #                     st.session_state.confirm_delete_db = False
-        #                     st.cache_data.clear()
-        #                     st.cache_resource.clear()
-        #                     st.rerun()
-        #                 else:
-        #                     st.error("An error occurred while clearing the database.")
-
-
+        
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
@@ -814,4 +841,3 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
-
