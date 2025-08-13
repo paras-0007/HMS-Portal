@@ -11,6 +11,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from typing import Dict, Any
 
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
@@ -906,3 +907,4 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
