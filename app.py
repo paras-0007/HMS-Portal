@@ -330,11 +330,64 @@ def run_app():
                     st.markdown(f"**Note for: {note['stage']}** | <small>Logged on: {time_str}</small>", unsafe_allow_html=True)
                     st.markdown(note['note'])
 
+
+    def render_api_monitoring(ai_classifier):
+        """Render API key pool monitoring information."""
+        with st.expander("🔑 API Key Pool Status", expanded=False):
+            stats = ai_classifier.get_api_pool_status()
+            
+            # Overall status
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Keys", stats["total_keys"])
+            
+            with col2:
+                st.metric("Available Keys", stats["available_keys"], 
+                        delta=None if stats["available_keys"] == stats["total_keys"] else f"-{stats['total_keys'] - stats['available_keys']}")
+            
+            with col3:
+                st.metric("Rate Limited", stats["rate_limited_keys"])
+            
+            with col4:
+                st.metric("Failed Keys", stats["failed_keys"])
+            
+            # Status indicator
+            if stats["available_keys"] == 0:
+                st.error("⚠️ No API keys available! Classification will fail until keys become available.")
+            elif stats["available_keys"] < stats["total_keys"] * 0.3:  # Less than 30% available
+                st.warning(f"⚠️ Low API key availability: {stats['available_keys']}/{stats['total_keys']} keys available")
+            else:
+                st.success(f"✅ API key pool healthy: {stats['available_keys']}/{stats['total_keys']} keys available")
+            
+            # Usage statistics
+            if stats["usage_counts"]:
+                st.subheader("Key Usage Statistics")
+                usage_data = []
+                for i, (key, count) in enumerate(stats["usage_counts"].items(), 1):
+                    key_status = "🔴 Failed" if key in ai_classifier.api_key_pool.failed_keys else (
+                        "🟡 Rate Limited" if key in ai_classifier.api_key_pool.rate_limited_keys else "🟢 Available"
+                    )
+                    usage_data.append({
+                        "Key": f"Key {i} ({key[:8]}...)",
+                        "Status": key_status,
+                        "Usage Count": count
+                    })
+                
+                st.dataframe(usage_data, use_container_width=True)
+
+                
     # --- Sidebar UI ---
     with st.sidebar:
         st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
-        
+
+        if st.button("🔑 Check API Status", use_container_width=True):
+            from modules.ai_classifier import AIClassifier
+            temp_classifier = AIClassifier()
+            render_api_monitoring(temp_classifier)
+
+
         if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
             try:
                 with st.spinner("Processing your inbox..."):
