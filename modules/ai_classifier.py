@@ -67,12 +67,23 @@ class APIKeyPool:
         available_keys = len([k for k in self.api_keys 
                             if k not in self.failed_keys and k not in self.rate_limited_keys])
         
+        # Add individual key statuses to the stats dict for detailed monitoring
+        key_statuses = {}
+        for key in self.api_keys:
+            if key in self.failed_keys:
+                key_statuses[key] = "Failed"
+            elif key in self.rate_limited_keys:
+                key_statuses[key] = "Rate Limited"
+            else:
+                key_statuses[key] = "Available"
+
         return {
             "total_keys": len(self.api_keys),
             "available_keys": available_keys,
             "failed_keys": len(self.failed_keys),
             "rate_limited_keys": len(self.rate_limited_keys),
-            "usage_counts": self.usage_counts.copy()
+            "usage_counts": self.usage_counts.copy(),
+            "key_statuses": key_statuses
         }
 
 
