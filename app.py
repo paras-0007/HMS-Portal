@@ -11,7 +11,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from typing import Dict, Any
 
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
@@ -21,7 +20,6 @@ from modules.sheet_updater import SheetsUpdater
 from processing_engine import ProcessingEngine
 from modules.importer import Importer
 from streamlit_quill import st_quill
-from utils.logger import logger
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
@@ -42,23 +40,23 @@ def create_flow():
             "web": {
                 "client_id": st.secrets["GOOGLE_CLIENT_ID"],
                 "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
-                "auth_uri": "[https://accounts.google.com/o/oauth2/auth](https://accounts.google.com/o/oauth2/auth)",
-                "token_uri": "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
-                "auth_provider_x509_cert_url": "[https://www.googleapis.com/oauth2/v1/certs](https://www.googleapis.com/oauth2/v1/certs)",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
                 "redirect_uris": [st.secrets["REDIRECT_URI"]],
             }
         }
         redirect_uri = st.secrets["REDIRECT_URI"]
 
     scopes = [
-        '[https://www.googleapis.com/auth/userinfo.profile](https://www.googleapis.com/auth/userinfo.profile)',
-        '[https://www.googleapis.com/auth/userinfo.email](https://www.googleapis.com/auth/userinfo.email)',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/userinfo.email',
         'openid',
-        '[https://www.googleapis.com/auth/gmail.readonly](https://www.googleapis.com/auth/gmail.readonly)',
-        '[https://www.googleapis.com/auth/gmail.modify](https://www.googleapis.com/auth/gmail.modify)',
-        '[https://www.googleapis.com/auth/drive.file](https://www.googleapis.com/auth/drive.file)',
-        '[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)',
-        '[https://www.googleapis.com/auth/calendar](https://www.googleapis.com/auth/calendar)'
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/calendar'
     ]
     
     return Flow.from_client_config(
@@ -75,7 +73,6 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
 if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 if 'resume_uploader_key' not in st.session_state: st.session_state.resume_uploader_key = 0
-if 'show_sync_dialog' not in st.session_state: st.session_state.show_sync_dialog = False
 
 
 def run_app():
@@ -89,7 +86,7 @@ def run_app():
             token_to_revoke = creds.refresh_token or creds.token
             if token_to_revoke:
                 try:
-                    requests.post('[https://oauth2.googleapis.com/revoke](https://oauth2.googleapis.com/revoke)',
+                    requests.post('https://oauth2.googleapis.com/revoke',
                         params={'token': token_to_revoke},
                         headers={'content-type': 'application/x-www-form-urlencoded'})
                 except Exception:
@@ -333,7 +330,8 @@ def run_app():
                     st.markdown(f"**Note for: {note['stage']}** | <small>Logged on: {time_str}</small>", unsafe_allow_html=True)
                     st.markdown(note['note'])
 
-    # --- MODIFICATION START: Refactored API monitoring function ---
+
+   
     def render_api_monitoring(stats: Dict[str, Any]):
         """Render API key pool monitoring information from a stats dictionary."""
         st.subheader("🔑 API Key Pool Live Status")
@@ -372,20 +370,31 @@ def run_app():
                     "Usage Count": count
                 })
             
-            st.dataframe(usage_data, use_container_width=True, height=150)
-    # --- MODIFICATION END ---
-                
+            st.dataframe(usage_data, use_container_width=True, height=150)                
     # --- Sidebar UI ---
     with st.sidebar:
         st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
 
-        # --- MODIFICATION START: Replaced API monitor with live sync button ---
         if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
             st.session_state.show_sync_dialog = True
             st.rerun()
-        # --- MODIFICATION END ---
-            
+
+
+        # if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
+        #     try:
+        #         with st.spinner("Processing your inbox..."):
+        #             engine = ProcessingEngine(credentials)
+        #             summary = engine.run_once()
+        #             st.success(summary)
+        #             st.cache_data.clear()
+        #             st.rerun()
+        #     except HttpError as e:
+        #         if e.resp.status == 401: st.error("Authentication error. Please log out and log back in.", icon="🚨")
+        #         else: st.error(f"An error occurred: {e}", icon="🚨")
+        #     except Exception as e:
+        #         st.error(f"An unexpected error occurred: {e}", icon="🚨")
+                
         if st.button("Logout", use_container_width=True, on_click=logout):
             pass
         st.divider()
@@ -430,27 +439,56 @@ def run_app():
             
             import_option = st.selectbox("Choose import method:", ["From local file (CSV/Excel)", "From Google Sheet", "From single resume URL", "From single resume file (PDF/DOCX)"])
             
+            # --- MODIFICATION START: Refactored importer with callbacks ---
             if import_option == "From Google Sheet":
-                st.text_input("Paste Google Sheet URL", key="g_sheet_url", help="""- Your Google Sheet must be public or shared.\n- The first row must be the header.\n- Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status""")
+                st.text_input(
+                    "Paste Google Sheet URL",
+                    key="g_sheet_url",
+                     help="""
+                    - Your Google Sheet must be public or shared.
+                    - The first row must be the header.
+                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
+                    """
+                )
                 st.button("Import from Sheet", on_click=handle_google_sheet_import)
             
             elif import_option == "From local file (CSV/Excel)":
-                st.file_uploader("Choose a CSV or Excel file for bulk import", type=["csv", "xls", "xlsx"], key=f"bulk_uploader_{st.session_state.uploader_key}", help="""- Supported formats: CSV, XLS, XLSX.\n- The first row must be the header.\n- Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status""")
+                st.file_uploader(
+                    "Choose a CSV or Excel file for bulk import",
+                    type=["csv", "xls", "xlsx"],
+                    key=f"bulk_uploader_{st.session_state.uploader_key}",
+                    help="""
+                    - Supported formats: CSV, XLS, XLSX.
+                    - The first row must be the header.
+                    - Columns order: Name,Email,Phone,Education,JobHistory,Resume,Role,Status	
+                    """
+                )
                 if st.session_state[f"bulk_uploader_{st.session_state.uploader_key}"]:
                     st.button("Import from File", on_click=handle_bulk_file_import)
 
             elif import_option == "From single resume URL":
-                st.text_input("Paste resume URL", key="resume_url_input", help="""- Paste a direct download link to a resume file.\n- For Google Drive, set sharing to "Anyone with the link".""")
+                st.text_input(
+                    "Paste resume URL",
+                    key="resume_url_input",
+                    help="""
+                    - Paste a direct download link to a resume file.
+                    - For Google Drive, set sharing to "Anyone with the link".
+                    """
+                )
                 st.button("Import from Resume URL", on_click=handle_resume_url_import)
             
             elif import_option == "From single resume file (PDF/DOCX)":
-                st.file_uploader("Upload a single resume", type=['pdf', 'docx'], key=f"resume_uploader_{st.session_state.resume_uploader_key}", help="- Upload a single resume in PDF or DOCX format.")
+                st.file_uploader(
+                    "Upload a single resume",
+                    type=['pdf', 'docx'],
+                    key=f"resume_uploader_{st.session_state.resume_uploader_key}",
+                    help="- Upload a single resume in PDF or DOCX format."
+                )
                 if st.session_state[f"resume_uploader_{st.session_state.resume_uploader_key}"]:
                     st.button("Import from Resume File", on_click=handle_local_resume_import)
+            # --- MODIFICATION END ---
 
         st.session_state.importer_expanded = importer_was_rendered
-
-    # --- MODIFICATION START: Live Sync Dialog ---
     if st.session_state.show_sync_dialog:
         @st.dialog("🚀 Real-time Sync & API Status", width="large")
         def sync_dialog():
@@ -550,10 +588,11 @@ def run_app():
         if "sync_log_messages" in st.session_state:
             del st.session_state.sync_log_messages
 
+
     # --- Main Page UI ---
     st.title("Hiring Management System")
     df_all = load_all_applicants()
-    st.markdown(f"### Displaying Applicants: {len(df_filtered)}")
+    st.markdown(f"### Displaying Applicants: {len(df_all)}")
     status_list = load_statuses()
     interviewer_list = load_interviewers()
 
@@ -564,8 +603,7 @@ def run_app():
         label_visibility="collapsed",
         key='main_tab'
     )
-    
-    # ... (The rest of the app.py file remains unchanged) ...
+
     if st.session_state.main_tab == "Applicant Dashboard":
         if st.session_state.view_mode == 'grid':
             
@@ -814,7 +852,34 @@ def run_app():
                         st.cache_data.clear()
                         st.rerun()
                     else: st.warning("Please provide name and a unique email.")
-        
+        # st.subheader("🔴 Danger Zone")
+        # with st.expander("Reset Application Data"):
+        #     st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
+            
+        #     if 'confirm_delete_db' not in st.session_state:
+        #         st.session_state.confirm_delete_db = False
+
+        #     if st.button("Initiate Database Reset", type="primary"):
+        #         st.session_state.confirm_delete_db = True
+            
+        #     if st.session_state.confirm_delete_db:
+        #         st.write("To confirm, please type **DELETE ALL DATA** in the box below.")
+        #         confirmation_text = st.text_input("Confirmation Phrase", placeholder="DELETE ALL DATA")
+                
+        #         if st.button("✅ Confirm and Delete All Data", disabled=(confirmation_text != "DELETE ALL DATA")):
+        #             with st.spinner("Deleting all data and resetting tables..."):
+        #                 if db_handler.clear_all_tables():
+        #                     st.success("Database cleared successfully.")
+        #                     db_handler.create_tables()
+        #                     st.info("Application tables have been reset.")
+        #                     st.session_state.confirm_delete_db = False
+        #                     st.cache_data.clear()
+        #                     st.cache_resource.clear()
+        #                     st.rerun()
+        #                 else:
+        #                     st.error("An error occurred while clearing the database.")
+
+
 # --- Authentication Flow ---
 if 'credentials' not in st.session_state:
     if 'code' in st.query_params:
