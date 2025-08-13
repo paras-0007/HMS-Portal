@@ -382,10 +382,9 @@ def run_app():
         st.header(f"Welcome {st.session_state.user_info['given_name']}!")
         st.image(st.session_state.user_info['picture'], width=80)
 
-        if st.button("🔑 Check API Status", use_container_width=True):
-            from modules.ai_classifier import AIClassifier
-            temp_classifier = AIClassifier()
-            render_api_monitoring(temp_classifier)
+        from modules.ai_classifier import AIClassifier
+        temp_classifier = AIClassifier()
+        render_api_monitoring(temp_classifier)
 
 
         if st.button("📧 Sync New Emails & Replies", use_container_width=True, type="primary"):
@@ -815,3 +814,4 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
