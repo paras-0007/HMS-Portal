@@ -11,5 +11,5 @@ python-dotenv
 openpyxl
 requests>=2.31.0
 streamlit>=1.28.0
-
+google-generativeai
 
