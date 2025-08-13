@@ -74,6 +74,7 @@ if 'schedule_view_active' not in st.session_state: st.session_state.schedule_vie
 if 'importer_expanded' not in st.session_state: st.session_state.importer_expanded = False
 if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 if 'resume_uploader_key' not in st.session_state: st.session_state.resume_uploader_key = 0
+if 'show_sync_dialog' not in st.session_state: st.session_state.show_sync_dialog = False
 
 
 def run_app():
@@ -907,4 +908,5 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
