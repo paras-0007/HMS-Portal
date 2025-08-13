@@ -108,7 +108,7 @@ class AIClassifier:
         # GOOGLE_API_KEY_2 = "your_second_key"
         # ... up to GOOGLE_API_KEY_12 = "your_twelfth_key"
         
-        for i in range(1, 13):  # Support up to 12 API keys
+        for i in range(1, 17):  # Support up to 12 API keys
             key_name = f"GOOGLE_API_KEY_{i}"
             api_key = st.secrets.get(key_name)
             if api_key:
@@ -333,3 +333,4 @@ class AIClassifier:
     def get_api_pool_status(self) -> Dict[str, Any]:
         """Get current status of the API key pool for monitoring."""
         return self.api_key_pool.get_stats()
+
