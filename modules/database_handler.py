@@ -465,3 +465,18 @@ class DatabaseHandler:
             logger.error(f"Error deleting JD {jd_id}: {e}")
             self.conn.rollback()
             return False
+            
+    def update_applicant_role(self, applicant_id, new_role):
+        self._connect()
+        if not self.conn: return False
+        sql = "UPDATE applicants SET domain = %s WHERE id = %s;"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (new_role, applicant_id))
+                self.conn.commit()
+                logger.info(f"Updated role for applicant {applicant_id} to '{new_role}'.")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating role for applicant {applicant_id}: {e}")
+            self.conn.rollback()
+            return False
