@@ -98,7 +98,11 @@ class Importer:
                 return None
             
             ai_data = self.ai_classifier.extract_info("", "", resume_text)
-            drive_url = self.drive_handler.upload_to_drive(temp_file_path)
+            applicant_name = ai_data.get('Name', f"resume_{uuid.uuid4().hex[:8]}")
+            original_extension = os.path.splitext(temp_file_path)[1]
+            safe_filename = f"{applicant_name.replace(' ', '_')}_Resume{original_extension}"
+            
+            drive_url = self.drive_handler.upload_to_drive(temp_file_path, new_file_name=safe_filename)
 
             applicant_data = {
                 'Name': ai_data.get('Name'), 'Email': ai_data.get('Email'),
