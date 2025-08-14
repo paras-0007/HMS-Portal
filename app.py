@@ -79,6 +79,22 @@ if 'show_sync_dialog' not in st.session_state: st.session_state.show_sync_dialog
 
 
 def run_app():
+    def get_status_color(status):
+        """Returns a hex color code for a given status."""
+        status = status.lower()
+        if 'rejected' in status:
+            return '#FF4B4B'  # Red
+        elif 'hired' in status:
+            return '#28a745'  # Green
+        elif 'new' in status:
+            return '#007bff'  # Blue
+        elif 'interview' in status:
+            return '#ffc107'  # Yellow/Orange
+        elif 'offer' in status:
+            return '#17a2b8'  # Cyan/Teal
+        else:
+            return '#FFFFFF'  # Default (White)
+            
     def download_file_from_url(url):
         import requests
         import re
@@ -640,14 +656,25 @@ def run_app():
             st.divider()
             
             selected_ids = []
-            df_display = df_filtered.sort_values(by="LastActionDate", ascending=False, na_position='last') if "LastActionDate" in df_filtered.columns else df_filtered
+            if "LastActionDate" in df_filtered.columns:
+                # Create a temporary column for sorting 'Rejected' status to the bottom
+                df_filtered['is_rejected'] = (df_filtered['Status'] == 'Rejected')
+                # Sort by the new column first (False then True), then by date
+                df_display = df_filtered.sort_values(
+                    by=['is_rejected', 'LastActionDate'],
+                    ascending=[True, False],
+                    na_position='last'
+                )
+            else:
+                df_display = df_filtered
             for _, row in df_display.iterrows():
                 row_cols = st.columns([0.5, 2.5, 2, 1.5, 2, 1.5, 2])
                 is_selected = row_cols[0].checkbox("", key=f"select_{row['Id']}", value=st.session_state.get(f"select_{row['Id']}", False))
                 if is_selected: selected_ids.append(int(row['Id']))
                 row_cols[1].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['Name']}</b></div>", unsafe_allow_html=True)
                 row_cols[2].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Role'])}</b></div>", unsafe_allow_html=True)
-                row_cols[3].markdown(f"<div style='padding-top: 0.6rem;'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
+                status_color = get_status_color(row['Status'])
+                row_cols[3].markdown(f"<div style='padding-top: 0.6rem; color: {status_color};'><b>{str(row['Status'])}</b></div>", unsafe_allow_html=True)
                 row_cols[4].markdown(f"<div style='padding-top: 0.6rem;'><b>{row['CreatedAt'].strftime('%d-%b-%Y')}</b></div>", unsafe_allow_html=True)
                 last_action_str = pd.to_datetime(row.get('LastActionDate')).strftime('%d-%b-%Y') if pd.notna(row.get('LastActionDate')) else "N/A"
                 row_cols[5].markdown(f"<div style='padding-top: 0.6rem;'><b>{last_action_str}</b></div>", unsafe_allow_html=True)
@@ -712,6 +739,28 @@ def run_app():
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
                         st.link_button("📄 View Resume on Drive", url=applicant['Resume'] or "#", use_container_width=True, disabled=not applicant['Resume'])
+                        with st.form("role_form"):
+                            st.markdown("**Role**")
+                            # Get all unique roles from the dataframe for the dropdown
+                            all_roles = sorted(df_all['Role'].dropna().unique().tolist())
+                            try:
+                                current_role_index = all_roles.index(applicant['Role'])
+                            except ValueError:
+                                all_roles.insert(0, applicant['Role'])
+                                current_role_index = 0
+                                
+                            new_role = st.selectbox("Edit Role", options=all_roles, index=current_role_index, label_visibility="collapsed")
+                            
+                            if st.form_submit_button("Update Role", use_container_width=True):
+                                if new_role != applicant['Role']:
+                                    if db_handler.update_applicant_role(applicant_id, new_role):
+                                        st.success("Role Updated!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update role.")
+                                else:
+                                    st.toast("No change in role.")
                         st.markdown("**Education**"); st.write(applicant['Education'] or "No details.")
                         st.divider() 
                         st.markdown("**Job History**"); st.markdown(applicant['JobHistory'] or "No details.", unsafe_allow_html=True)
@@ -2078,6 +2127,7 @@ else:
 #         st.link_button("Login with Google", authorization_url, use_container_width=True)
 # else:
 #     run_app()
+
 
 
 
