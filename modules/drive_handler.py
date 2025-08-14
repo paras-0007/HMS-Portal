@@ -13,26 +13,30 @@ class DriveHandler:
             logger.error(f"Failed to initialize Google Drive service: {e}", exc_info=True)
             self.service = None
 
-    def upload_to_drive(self, file_path):
+    def upload_to_drive(self, file_path, new_file_name=None):
         """Upload file to Google Drive and return shareable link"""
         try:
-            # Use os.path.basename for better cross-platform compatibility
-            file_name = os.path.basename(file_path)
+            # Use provided name or fallback to original basename
+            file_name = new_file_name if new_file_name else os.path.basename(file_path) 
+
+            import re
+            file_name = re.sub(r'[\\/*?:"<>|]', "_", file_name)
+    
             file_metadata = {'name': file_name}
             media = MediaFileUpload(file_path, mimetype='application/pdf')
-
+    
             file = self.service.files().create(
                 body=file_metadata,
                 media_body=media,
                 fields='id, webViewLink'
             ).execute()
-
+    
             # Set permissions to get shareable link
             self.service.permissions().create(
                 fileId=file['id'],
                 body={'type': 'anyone', 'role': 'reader'}
             ).execute()
-
+    
             return file.get('webViewLink')
         except Exception as e:
             logger.error(f"Drive upload failed: {str(e)}", exc_info=True)
