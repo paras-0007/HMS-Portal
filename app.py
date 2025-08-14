@@ -819,7 +819,7 @@ def run_app():
         st.header("Manage System Settings")
         st.markdown("Add or remove statuses and interviewers available across the application.")
         st.divider()
-        col_status, col_interviewer = st.columns(2, gap="large")
+        col_status, col_interviewer, col_jd = st.columns(3, gap="large")
         with col_status:
             st.subheader("Applicant Statuses")
             for status in status_list:
@@ -854,6 +854,53 @@ def run_app():
                         st.cache_data.clear()
                         st.rerun()
                     else: st.warning("Please provide name and a unique email.")
+                        
+        with col_jd:
+            st.subheader("Job Descriptions")
+            jd_list = db_handler.get_job_descriptions()
+            if not jd_list.empty:
+                for _, jd in jd_list.iterrows():
+                    c1, c2 = st.columns([4, 1])
+                    c1.markdown(f"[{jd['name']}]({jd['drive_url']})")
+                    if c2.button("🗑️", key=f"del_jd_{jd['id']}"):
+                        if db_handler.delete_job_description(jd['id']):
+                            st.success(f"JD '{jd['name']}' deleted.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("Could not delete JD.")
+        
+            with st.form("new_jd_form", clear_on_submit=True):
+                st.write("Add New Job Description")
+                jd_name = st.text_input("JD Name (e.g., AI Engineer JD)")
+                jd_file = st.file_uploader("Upload JD File (PDF/DOCX)", type=['pdf', 'docx'])
+                if st.form_submit_button("Add Job Description", use_container_width=True):
+                    if jd_name and jd_file:
+                        with st.spinner("Uploading to Drive and saving..."):
+                            # We need a DriveHandler instance here
+                            drive_handler = DriveHandler(credentials)
+        
+                            # Save temp file to upload
+                            import os
+                            import uuid
+                            temp_file_path = f"/tmp/{uuid.uuid4()}_{jd_file.name}"
+                            with open(temp_file_path, "wb") as f:
+                                f.write(jd_file.getbuffer())
+        
+                            # Upload and get URL
+                            drive_url = drive_handler.upload_to_drive(temp_file_path, new_file_name=jd_file.name)
+        
+                            # Clean up
+                            os.remove(temp_file_path)
+        
+                            if drive_url and db_handler.add_job_description(jd_name, drive_url, jd_file.name):
+                                st.success(f"JD '{jd_name}' added.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error("Failed to add JD.")
+                    else:
+                        st.warning("Please provide both name and a file.")
         # st.subheader("🔴 Danger Zone")
         # with st.expander("Reset Application Data"):
         #     st.warning("**WARNING:** This action is irreversible. It will permanently delete all applicants, communications, and history from the database.")
@@ -908,5 +955,6 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
 
