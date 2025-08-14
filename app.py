@@ -720,34 +720,80 @@ def run_app():
                         if st.session_state.get(f'schedule_view_active_{applicant_id}', False):
                             with st.container(border=True):
                                 st.write("**New Interview**"); 
+                                jd_list = db_handler.get_job_descriptions()
+                                jd_options = {jd['name']: {'drive_url': jd['drive_url'], 'name': jd['name']} for _, jd in jd_list.iterrows()}
+                                jd_options["None (Don't attach)"] = None
+                        
                                 with st.form(f"schedule_form_{applicant_id}"):
+                                    # New fields for title and description
+                                    title = st.text_input("Interview Title", value=f"Interview: {applicant['Name']} for {applicant['Role']}")
+                                    desc = st.text_area("Event Description / Notes for Attendees", placeholder="First round technical interview for the specified role.", height=150)
+                                    
                                     opts = {f"{name} ({email})": email for name, email in zip(interviewer_list['name'], interviewer_list['email'])}
                                     interviewer_display = st.selectbox("Interviewer", options=list(opts.keys()))
                                     duration = st.selectbox("Duration (mins)", options=[30, 45, 60])
-                                    if st.form_submit_button("Find Times", use_container_width=True):
+                                    
+                                    # New dropdown for JDs
+                                    selected_jd_name = st.selectbox("Attach Job Description", options=list(jd_options.keys()))
+                        
+                                    if st.form_submit_button("Find Available Times", use_container_width=True):
+                                        # Store all form data in session state to use after finding times
                                         st.session_state[f'schedule_interviewer_{applicant_id}'] = opts[interviewer_display]
                                         st.session_state[f'schedule_duration_{applicant_id}'] = duration
-                                        with st.spinner("Finding open slots..."): st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration)
-                                        if not st.session_state.get(f'available_slots_{applicant_id}'): st.warning("No available slots found.")
+                                        st.session_state[f'schedule_title_{applicant_id}'] = title
+                                        st.session_state[f'schedule_desc_{applicant_id}'] = desc
+                                        st.session_state[f'schedule_jd_{applicant_id}'] = jd_options[selected_jd_name]
+                                        
+                                        with st.spinner("Finding open slots..."):
+                                            st.session_state[f'available_slots_{applicant_id}'] = calendar_handler.find_available_slots(opts[interviewer_display], duration)
+                                        if not st.session_state.get(f'available_slots_{applicant_id}'):
+                                            st.warning("No available slots found.")
+                        
                                 if st.session_state.get(f'available_slots_{applicant_id}'):
-                                    slots = st.session_state[f'available_slots_{applicant_id}']; slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
+                                    slots = st.session_state[f'available_slots_{applicant_id}']
+                                    slot_options = {s.strftime('%A, %b %d at %I:%M %p'): s for s in slots}
+                                    
                                     with st.form(f"booking_form_{applicant_id}"):
-                                        final_slot_str = st.selectbox("Confirmed Time:", options=list(slot_options.keys()))
-                                        desc = st.text_area("Description:", placeholder="First round technical interview.")
-                                        if st.form_submit_button("✅ Confirm & Book", use_container_width=True):
-                                            start_time = slot_options[final_slot_str]; end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
+                                        final_slot_str = st.selectbox("Select Confirmed Time:", options=list(slot_options.keys()))
+                                        
+                                        if st.form_submit_button("✅ Confirm & Book Interview", use_container_width=True):
+                                            start_time = slot_options[final_slot_str]
+                                            end_time = start_time + datetime.timedelta(minutes=st.session_state[f'schedule_duration_{applicant_id}'])
+                                            
+                                            # Retrieve all data from session state
                                             interviewer_email = st.session_state[f'schedule_interviewer_{applicant_id}']
-                                            event = calendar_handler.create_calendar_event(applicant['Name'], applicant['Email'], interviewer_email, start_time, end_time, desc)
+                                            event_title = st.session_state[f'schedule_title_{applicant_id}']
+                                            event_desc = st.session_state[f'schedule_desc_{applicant_id}']
+                                            jd_to_attach = st.session_state[f'schedule_jd_{applicant_id}']
+                                            resume_to_attach = applicant['Resume']
+                        
+                                            event = calendar_handler.create_calendar_event(
+                                                applicant['Name'], applicant['Email'], interviewer_email, 
+                                                start_time, end_time, event_title, event_desc,
+                                                resume_url=resume_to_attach, jd_info=jd_to_attach
+                                            )
+                                            
                                             if event:
                                                 i_id = interviewer_list[interviewer_list['email'] == interviewer_email].iloc[0]['id']
                                                 db_handler.log_interview(applicant_id, i_id, event['summary'], start_time, end_time, event['id'])
                                                 
                                                 st.session_state.booking_success_message = f"✅ Interview confirmed with {applicant['Name']} for {final_slot_str}."
+                                                # Clean up all scheduling-related session state keys
                                                 for key in list(st.session_state.keys()):
-                                                    if key.startswith(f'schedule_') or key.startswith('available_slots_'): del st.session_state[key]
-                                                st.cache_data.clear(); st.rerun()
-                                            else: st.error("Failed to create calendar event.")
-                                if st.button("✖️ Cancel", use_container_width=True, key="cancel_schedule"): st.session_state[f'schedule_view_active_{applicant_id}'] = False; st.rerun()
+                                                    if key.startswith(f'schedule_') or key.startswith('available_slots_'):
+                                                        del st.session_state[key]
+                                                st.cache_data.clear()
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to create calendar event.")
+                        
+                                if st.button("✖️ Cancel Scheduling", use_container_width=True, key="cancel_schedule"):
+                                    # Clean up keys on cancel
+                                    for key in list(st.session_state.keys()):
+                                        if key.startswith(f'schedule_') or key.startswith(f'available_slots_'):
+                                            del st.session_state[key]
+                                    st.session_state[f'schedule_view_active_{applicant_id}'] = False
+                                    st.rerun()
 
                 elif selected_tab_index == 1: 
                     st.subheader("Log a New Note")
@@ -955,6 +1001,7 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
 
 
