@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from utils.logger import logger
 from utils.file_utils import create_temp_file
+from typing import List, Dict
 
 
 class EmailHandler:
@@ -356,3 +357,4 @@ class EmailHandler:
 #         match = re.search(r'<([^>]+)>', header)
 
 #         return match.group(1) if match else header
+
