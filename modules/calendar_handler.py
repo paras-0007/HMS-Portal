@@ -95,19 +95,37 @@ class CalendarHandler:
         logger.info(f"Found {len(available_slots)} available slots for {interviewer_email}.")
         return available_slots
 
-    def create_calendar_event(self, applicant_name, applicant_email, interviewer_email, start_time, end_time, description):
+    def create_calendar_event(self, applicant_name, applicant_email, interviewer_email, start_time, end_time, event_summary, description, resume_url=None, jd_info=None):
         if not self.service:
             logger.error("Calendar service is not available.")
             return None
-        event_summary = f"Interview: {applicant_name}"
+            
+        attachments = []
+        if resume_url:
+            attachments.append({
+                'fileUrl': resume_url,
+                'title': f"Resume - {applicant_name}"
+            })
+        
+        if jd_info and jd_info.get('drive_url'):
+            attachments.append({
+                'fileUrl': jd_info['drive_url'],
+                'title': f"Job Description - {jd_info['name']}"
+            })
+    
         event_body = {
-            'summary': event_summary, 'description': description,
+            'summary': event_summary, 
+            'description': description,
             'start': { 'dateTime': start_time.isoformat(), 'timeZone': 'Asia/Kolkata' },
             'end': { 'dateTime': end_time.isoformat(), 'timeZone': 'Asia/Kolkata' },
             'attendees': [ {'email': interviewer_email}, {'email': applicant_email} ],
             'conferenceData': { 'createRequest': { 'requestId': f"{uuid.uuid4().hex}", 'conferenceSolutionKey': {'type': 'hangoutsMeet'} } },
             'reminders': { 'useDefault': True },
         }
+    
+        if attachments:
+            event_body['attachments'] = attachments
+    
         try:
             logger.info(f"Creating calendar event for {applicant_name} with {interviewer_email}")
             created_event = self.service.events().insert(
