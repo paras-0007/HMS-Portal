@@ -135,10 +135,7 @@ class ProcessingEngine:
                 self.email_handler.mark_as_read(msg_id)
                 return False
 
-            drive_url = self.drive_handler.upload_to_drive(file_path)
             resume_text = self.file_processor.extract_text(file_path)
-
-            # Attempt AI classification - no fallback to rule-based
             ai_data = self.ai_classifier.extract_info(email_data['subject'], email_data['body'], resume_text)
             
             if not ai_data or not ai_data.get('Name'):
@@ -148,12 +145,16 @@ class ProcessingEngine:
                 api_stats = self.ai_classifier.get_api_pool_status()
                 logger.error(f"Current API Key Pool Status: {api_stats}")
                 
-                # Do NOT mark as read - leave unread for potential retry later
-                # when API keys become available again
                 logger.warning(f"Email {msg_id} will remain unread and will be retried in the next cycle when API keys are available.")
                 return False
             
-            # If classification successful, proceed with database insertion
+            import os
+            import uuid
+            applicant_name = ai_data.get('Name', f"resume_{uuid.uuid4().hex[:8]}")
+            original_extension = os.path.splitext(file_path)[1]
+            safe_filename = f"{applicant_name.replace(' ', '_')}_Resume{original_extension}"
+            drive_url = self.drive_handler.upload_to_drive(file_path, new_file_name=safe_filename)
+
             applicant_data = {**ai_data, 'Email': email_data['sender'], 'CV_URL': drive_url}
             
             applicant_id = self.db_handler.insert_applicant_and_communication(applicant_data, email_data)
@@ -174,3 +175,4 @@ class ProcessingEngine:
     def get_classification_status(self):
         """Get current status of the classification system for monitoring."""
         return self.ai_classifier.get_api_pool_status()
+
