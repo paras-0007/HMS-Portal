@@ -451,7 +451,10 @@ def run_app():
             df_filtered = df_filtered[df_filtered['Role'] == domain_filter]
         
         st.divider()
-        if st.button("🔄 Refresh All Data", use_container_width=True): st.cache_data.clear(); st.rerun()
+        if st.button("🔄 Refresh All Data", use_container_width=True):
+            st.cache_data.clear()
+            st.cache_resource.clear() 
+            st.rerun()
 
         with st.expander("📂 Recent Exports"):
             logs = db_handler.fetch_export_logs()
@@ -716,7 +719,38 @@ def run_app():
                     del st.session_state.booking_success_message
                 
                 st.header(f"{applicant['Name']}")
-                st.markdown(f"**Applying for:** `{applicant['Role']}` | **Current Status:** `{applicant['Status']}`")
+                role_cols = st.columns([1.5, 4, 0.2, 3])
+                role_cols[0].markdown("<div style='padding-top: 0.5rem;'><b>Applying for:</b></div>", unsafe_allow_html=True)
+                
+                # This column contains the compact form for editing
+                with role_cols[1]:
+                    with st.form("inline_role_form"):
+                        form_cols = st.columns([4, 1])
+                        new_role = form_cols[0].text_input(
+                            "Role",
+                            value=applicant['Role'],
+                            label_visibility="collapsed"
+                        )
+                        
+                        # The submit button is now a compact save icon
+                        submitted = form_cols[1].form_submit_button("💾", help="Save Role")
+                
+                        if submitted:
+                            if new_role and new_role.strip() != applicant['Role']:
+                                if db_handler.update_applicant_role(applicant_id, new_role.strip()):
+                                    st.toast("Role Updated!")
+                                    st.cache_data.clear()
+                                    st.cache_resource.clear()
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update role.")
+                            else:
+                                st.toast("No change in role.")
+                
+                # This column is for the separator
+                role_cols[2].markdown("<p style='text-align: center; padding-top: 0.5rem;'>|</p>", unsafe_allow_html=True)
+                # This column displays the status
+                role_cols[3].markdown(f"<div style='padding-top: 0.5rem;'><b>Current Status:</b> `{applicant['Status']}`</div>", unsafe_allow_html=True)
                 st.divider(); render_dynamic_journey_tracker(load_status_history(applicant_id), applicant['Status']); st.divider()
 
                 tab_options = ["**👤 Profile & Actions**", "**📈 Feedback & Notes**", "**💬 Email Hub**"]
@@ -739,28 +773,6 @@ def run_app():
                     with col1:
                         st.subheader("Applicant Details"); st.markdown(f"**Email:** `{applicant['Email']}`\n\n**Phone:** `{applicant['Phone'] or 'N/A'}`")
                         st.link_button("📄 View Resume on Drive", url=applicant['Resume'] or "#", use_container_width=True, disabled=not applicant['Resume'])
-                        with st.form("role_form"):
-                            st.markdown("**Role**")
-                            # Get all unique roles from the dataframe for the dropdown
-                            all_roles = sorted(df_all['Role'].dropna().unique().tolist())
-                            try:
-                                current_role_index = all_roles.index(applicant['Role'])
-                            except ValueError:
-                                all_roles.insert(0, applicant['Role'])
-                                current_role_index = 0
-                                
-                            new_role = st.selectbox("Edit Role", options=all_roles, index=current_role_index, label_visibility="collapsed")
-                            
-                            if st.form_submit_button("Update Role", use_container_width=True):
-                                if new_role != applicant['Role']:
-                                    if db_handler.update_applicant_role(applicant_id, new_role):
-                                        st.success("Role Updated!")
-                                        st.cache_data.clear()
-                                        st.rerun()
-                                    else:
-                                        st.error("Failed to update role.")
-                                else:
-                                    st.toast("No change in role.")
                         st.markdown("**Education**"); st.write(applicant['Education'] or "No details.")
                         st.divider() 
                         st.markdown("**Job History**"); st.markdown(applicant['JobHistory'] or "No details.", unsafe_allow_html=True)
@@ -2127,6 +2139,7 @@ else:
 #         st.link_button("Login with Google", authorization_url, use_container_width=True)
 # else:
 #     run_app()
+
 
 
 
