@@ -3,9 +3,10 @@ from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build
 from utils.logger import logger
 import uuid
+import re 
 
 class CalendarHandler:
-    def __init__(self, credentials): # MODIFIED: Accept credentials
+    def __init__(self, credentials):
         """Initializes the CalendarHandler with Google Calendar API service."""
         try:
             self.service = build('calendar', 'v3', credentials=credentials)
@@ -13,7 +14,17 @@ class CalendarHandler:
         except Exception as e:
             logger.error(f"Failed to initialize Google Calendar service: {e}", exc_info=True)
             self.service = None
-
+            
+    def _get_direct_download_link(self, drive_url):
+        """Converts a Google Drive view URL to a direct download link."""
+        if not drive_url:
+            return None
+        match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', drive_url)
+        if match:
+            file_id = match.group(1)
+            return f'https://drive.google.com/uc?export=download&id={file_id}'
+        return drive_url
+        
     def find_available_slots(self, interviewer_email, duration_minutes, days_to_check=7):
         """
         Finds available time slots for an interviewer by fetching ALL events and treating them as busy.
@@ -99,33 +110,42 @@ class CalendarHandler:
         if not self.service:
             logger.error("Calendar service is not available.")
             return None
-            
+
         attachments = []
+        # Use the helper method to convert the URLs
         if resume_url:
-            attachments.append({
-                'fileUrl': resume_url,
-                'title': f"Resume - {applicant_name}"
-            })
-        
+            direct_resume_url = self._get_direct_download_link(resume_url)
+            if direct_resume_url:
+                attachments.append({
+                    'fileUrl': direct_resume_url,
+                    'title': f"Resume - {applicant_name}"
+                })
+
         if jd_info and jd_info.get('drive_url'):
-            attachments.append({
-                'fileUrl': jd_info['drive_url'],
-                'title': f"Job Description - {jd_info['name']}"
-            })
-    
+            direct_jd_url = self._get_direct_download_link(jd_info['drive_url'])
+            if direct_jd_url:
+                attachments.append({
+                    'fileUrl': direct_jd_url,
+                    'title': f"Job Description - {jd_info['name']}"
+                })
+
         event_body = {
-            'summary': event_summary, 
+            'summary': event_summary,
             'description': description,
-            'start': { 'dateTime': start_time.isoformat(), 'timeZone': 'Asia/Kolkata' },
-            'end': { 'dateTime': end_time.isoformat(), 'timeZone': 'Asia/Kolkata' },
-            'attendees': [ {'email': interviewer_email}, {'email': applicant_email} ],
-            'conferenceData': { 'createRequest': { 'requestId': f"{uuid.uuid4().hex}", 'conferenceSolutionKey': {'type': 'hangoutsMeet'} } },
-            'reminders': { 'useDefault': True },
+            'start': {'dateTime': start_time.isoformat(), 'timeZone': 'Asia/Kolkata'},
+            'end': {'dateTime': end_time.isoformat(), 'timeZone': 'Asia/Kolkata'},
+            'attendees': [{'email': interviewer_email}, {'email': applicant_email}],
+            'conferenceData': {'createRequest': {'requestId': f"{uuid.uuid4().hex}", 'conferenceSolutionKey': {'type': 'hangoutsMeet'}}},
+            'reminders': {'useDefault': True},
         }
-    
+
+        # The 'attachments' key should only be added if it's not empty
         if attachments:
             event_body['attachments'] = attachments
-    
+            logger.info(f"Attaching {len(attachments)} file(s) to the calendar event.")
+        else:
+            logger.warning("No valid attachment URLs found to add to the event.")
+
         try:
             logger.info(f"Creating calendar event for {applicant_name} with {interviewer_email}")
             created_event = self.service.events().insert(
@@ -135,4 +155,6 @@ class CalendarHandler:
             return created_event
         except Exception as e:
             logger.error(f"Failed to create calendar event: {e}", exc_info=True)
+            logger.debug(f"Event body that failed: {event_body}")
             return None
+
