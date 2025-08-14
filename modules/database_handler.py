@@ -110,6 +110,13 @@ class DatabaseHandler:
                 applicant_id INTEGER REFERENCES applicants(id) ON DELETE CASCADE,
                 status_name VARCHAR(255) NOT NULL,
                 changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );""",
+            """CREATE TABLE IF NOT EXISTS job_descriptions (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL,
+                drive_url TEXT,
+                file_name VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );"""
         ]
         try:
@@ -419,3 +426,42 @@ class DatabaseHandler:
         query = "SELECT id, file_name, sheet_url, created_at FROM export_logs ORDER BY created_at DESC LIMIT 5;"
         try: return pd.read_sql_query(query, self.conn)
         except Exception as e: logger.error(f"Error fetching export logs: {e}"); return pd.DataFrame()
+
+    def add_job_description(self, name, drive_url, file_name):
+        self._connect()
+        if not self.conn: return False
+        sql = "INSERT INTO job_descriptions (name, drive_url, file_name) VALUES (%s, %s, %s) ON CONFLICT (name) DO UPDATE SET drive_url = %s, file_name = %s;"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (name, drive_url, file_name, drive_url, file_name))
+                self.conn.commit()
+                logger.info(f"Added/Updated Job Description: {name}")
+                return True
+        except Exception as e:
+            logger.error(f"Error adding/updating JD '{name}': {e}")
+            self.conn.rollback()
+            return False
+    
+    def get_job_descriptions(self):
+        self._connect()
+        if not self.conn: return pd.DataFrame()
+        query = "SELECT id, name, drive_url, file_name FROM job_descriptions ORDER BY name;"
+        try:
+            return pd.read_sql_query(query, self.conn)
+        except Exception as e:
+            logger.error(f"Error fetching job descriptions: {e}")
+            return pd.DataFrame()
+    
+    def delete_job_description(self, jd_id):
+        self._connect()
+        if not self.conn: return False
+        sql = "DELETE FROM job_descriptions WHERE id = %s;"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (jd_id,))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting JD {jd_id}: {e}")
+            self.conn.rollback()
+            return False
