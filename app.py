@@ -15,6 +15,7 @@ from typing import Dict, Any
 
 # ---  Application Modules ---
 from modules.database_handler import DatabaseHandler
+from modules.drive_handler import DriveHandler
 from modules.email_handler import EmailHandler
 from modules.calendar_handler import CalendarHandler
 from modules.sheet_updater import SheetsUpdater
@@ -111,12 +112,14 @@ def run_app():
     def get_sheets_updater(creds): return SheetsUpdater(creds)
     def get_calendar_handler(creds): return CalendarHandler(creds)
     def get_importer(creds): return Importer(creds)
+    def get_drive_handler(creds): return DriveHandler(creds)
 
     db_handler = get_db_handler()
     email_handler = get_email_handler(credentials)
     sheets_updater = get_sheets_updater(credentials)
     calendar_handler = get_calendar_handler(credentials)
     importer = get_importer(credentials)
+    drive_handler = DriveHandler(credentials)
 
     # --- Callbacks for Importer ---
     def handle_google_sheet_import():
@@ -923,9 +926,6 @@ def run_app():
                 if st.form_submit_button("Add Job Description", use_container_width=True):
                     if jd_name and jd_file:
                         with st.spinner("Uploading to Drive and saving..."):
-                            # We need a DriveHandler instance here
-                            drive_handler = DriveHandler(credentials)
-        
                             # Save temp file to upload
                             import os
                             import uuid
@@ -1001,6 +1001,7 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
 
 
