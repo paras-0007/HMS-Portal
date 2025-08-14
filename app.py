@@ -768,7 +768,7 @@ def run_app():
                                             event_title = st.session_state[f'schedule_title_{applicant_id}']
                                             event_desc = st.session_state[f'schedule_desc_{applicant_id}']
                                             jd_to_attach = st.session_state[f'schedule_jd_{applicant_id}']
-                                            resume_to_attach = applicant['Resume']
+                                            resume_to_attach = applicant['Resume'] if pd.notna(applicant['Resume']) else None
                         
                                             event = calendar_handler.create_calendar_event(
                                                 applicant['Name'], applicant['Email'], interviewer_email, 
@@ -1001,6 +1001,7 @@ if 'credentials' not in st.session_state:
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
 
 
