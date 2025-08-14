@@ -3,7 +3,8 @@ from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build
 from utils.logger import logger
 import uuid
-import re 
+import re
+from ics import Calendar, Event
 
 class CalendarHandler:
     def __init__(self, credentials):
@@ -324,5 +325,6 @@ class CalendarHandler:
 #             logger.error(f"Failed to create calendar event: {e}", exc_info=True)
 #             logger.debug(f"Event body that failed: {event_body}")
 #             return None
+
 
 
