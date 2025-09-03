@@ -922,20 +922,39 @@ def run_app():
 
                 elif selected_tab_index == 1: 
                     st.subheader("Log a New Note")
-                    with st.form("note_form_tab"):
-                        history_df = load_status_history(applicant_id); note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
+                    with st.form("note_form_tab", clear_on_submit=True):
+                        history_df = load_status_history(applicant_id)
+                        note_stages = ["General Note"] + [s for s in history_df['status_name'].unique() if s]
+                        
                         note_type = st.selectbox("Note for Stage", options=note_stages)
                         note_content = st.text_area("Note / Feedback Content", height=100, placeholder="e.g., Candidate showed strong problem-solving skills...")
-                        if st.form_submit_button("Save Note", use_container_width=True):
+                        
+                        submitted = st.form_submit_button("Save Note", use_container_width=True)
+                        if submitted:
                             if note_content:
                                 notes = get_feedback_notes(applicant['Feedback'])
-                                new_note = {"id": str(uuid.uuid4()), "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "stage": note_type, "author": "HR", "note": note_content}
+                                new_note = {
+                                    "id": str(uuid.uuid4()), 
+                                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), 
+                                    "stage": note_type, 
+                                    "author": "HR", 
+                                    "note": note_content
+                                }
                                 notes.append(new_note)
+                                
                                 for note in notes:
-                                    if isinstance(note['timestamp'], datetime.datetime): note['timestamp'] = note['timestamp'].isoformat()
-                                if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)): st.success("Note saved!"); st.cache_data.clear(); st.rerun()
-                                else: st.error("Failed to save note.")
-                            else: st.warning("Note cannot be empty.")
+                                    if isinstance(note.get('timestamp'), datetime.datetime):
+                                        note['timestamp'] = note['timestamp'].isoformat()
+                                
+                                if db_handler.update_applicant_feedback(applicant_id, json.dumps(notes)):
+                                    st.success("Note saved!")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save note.")
+                            else:
+                                st.warning("Note cannot be empty.")
+                    
                     st.divider()
                     render_feedback_dossier(applicant_id, applicant['Feedback'])
 
@@ -2139,6 +2158,7 @@ else:
 #         st.link_button("Login with Google", authorization_url, use_container_width=True)
 # else:
 #     run_app()
+
 
 
 
