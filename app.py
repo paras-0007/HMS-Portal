@@ -1069,7 +1069,6 @@ def run_app():
                         with st.spinner("Uploading to Drive and saving..."):
                             # Save temp file to upload
                             import os
-                            import uuid
                             temp_file_path = f"/tmp/{uuid.uuid4()}_{jd_file.name}"
                             with open(temp_file_path, "wb") as f:
                                 f.write(jd_file.getbuffer())
