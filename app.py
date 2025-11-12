@@ -20,57 +20,51 @@ from modules.calendar_handler import CalendarHandler
 from modules.sheet_updater import SheetsUpdater
 from modules.importer import Importer
 from utils.logger import logger
-# Add these imports if they aren't already there
+
+import os
+
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-import os
+from google.oauth2.credentials import Credentials
 
 def create_flow():
     """
-    Creates a Google OAuth Flow object. 
-    Checks for local credentials.json first, then falls back to st.secrets.
+    Creates a Google OAuth Flow object. It uses secrets for deployment 
+    and a local credentials.json file for development.
     """
-    # Define the scopes required for the app
-    SCOPES = [
+    try:
+        # Local development
+        with open('credentials.json') as f:
+            client_config = json.load(f)
+        redirect_uri = "http://localhost:8501"
+    except FileNotFoundError:
+        # Production mode
+        client_config = {
+            "web": {
+                "client_id": st.secrets["GOOGLE_CLIENT_ID"],
+                "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "redirect_uris": [st.secrets["REDIRECT_URI"]],
+            }
+        }
+        redirect_uri = st.secrets["REDIRECT_URI"]
+
+    scopes = [
         'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/userinfo.email',
         'openid',
-        'https://www.googleapis.com/auth/gmail.modify', # specific for app1 functionality
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/calendar',
-        'https://www.googleapis.com/auth/spreadsheets'
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/calendar'
     ]
-
-    # Check for local credentials.json (Development Mode)
-    if os.path.exists('credentials.json'):
-        try:
-            with open('credentials.json') as f:
-                client_config = json.load(f)
-            redirect_uri = "http://localhost:8501" # Standard local Streamlit port
-        except Exception as e:
-            st.error(f"Error reading credentials.json: {e}")
-            st.stop()
-            
-    # Fallback to st.secrets (Deployment Mode)
-    else:
-        try:
-            client_config = {
-                "web": {
-                    "client_id": st.secrets["GOOGLE_CLIENT_ID"],
-                    "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [st.secrets["REDIRECT_URI"]],
-                }
-            }
-            redirect_uri = st.secrets["REDIRECT_URI"]
-        except KeyError as e:
-            st.error(f"Missing secrets configuration: {e}")
-            st.stop()
 
     return Flow.from_client_config(
         client_config=client_config,
-        scopes=SCOPES,
+        scopes=scopes,
         redirect_uri=redirect_uri
     )
 
@@ -277,89 +271,60 @@ def init_session_state():
             st.session_state[key] = value
 
 def authenticate():
-    """Handle Google OAuth authentication using the flexible create_flow approach"""
-    
-    # 1. Handle the Callback (Code in URL)
+    """Handles Google OAuth flow (same behavior as in app.py)."""
     if 'code' in st.query_params:
         with st.spinner("Completing authentication..."):
             try:
                 flow = create_flow()
                 flow.fetch_token(code=st.query_params['code'])
-                
-                # Save credentials to session state
                 creds = flow.credentials
                 st.session_state['credentials'] = creds
                 st.session_state['authenticated'] = True
-                
-                # Fetch User Info (Email & Name)
+
+                # Fetch user info
                 service = build('oauth2', 'v2', credentials=creds)
                 user_info = service.userinfo().get().execute()
-                st.session_state['email'] = user_info.get('email')
-                # Optional: You can save user_info['name'] or 'picture' here too if you want
-                
-                # Initialize Application Services
+                st.session_state['user_info'] = user_info
+
+                # Initialize modules
                 st.session_state['processing_engine'] = ProcessingEngine(creds)
                 st.session_state['db_handler'] = DatabaseHandler()
-                
-                # Clean URL and Refresh
+
                 st.query_params.clear()
                 st.success("✅ Authentication successful!")
-                time.sleep(0.5)
                 st.rerun()
-                
             except Exception as e:
-                st.error(f"Authentication failed: {str(e)}")
-                # Clear params to prevent infinite error loops
-                st.query_params.clear() 
-
-    # 2. Handle Login UI (No code in URL)
+                st.error(f"Authentication failed: {e}")
+                st.query_params.clear()
     else:
-        auth_container = st.container()
-        with auth_container:
-            # Header styling
-            st.markdown("""
-                <div class="header-container">
-                    <h1 class="header-title">🎯 HireFl.ai</h1>
-                    <p class="header-subtitle">Intelligent Hiring Management System</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.markdown("""
-                    <div class="dashboard-card" style="text-align: center;">
-                        <h2 style="color: #667eea; margin-bottom: 1rem;">Welcome Back!</h2>
-                        <p style="color: #6c757d; margin-bottom: 2rem;">
-                            Connect your Google Workspace to manage applications, 
-                            schedule interviews, and streamline your hiring process.
-                        </p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Generate the Auth URL using create_flow
-                flow = create_flow()
-                auth_url, _ = flow.authorization_url(
-                    prompt='consent', 
-                    access_type='offline',
-                    include_granted_scopes='true'
-                )
-                
-                # Display the Link as a styled button
-                st.markdown(f"""
-                    <div style="text-align: center; margin-top: 1rem;">
-                        <a href="{auth_url}" target="_self" style="
-                            display: inline-block;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            color: white;
-                            padding: 0.75rem 2rem;
-                            border-radius: 8px;
-                            text-decoration: none;
-                            font-weight: 500;
-                            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-                            transition: transform 0.2s;
-                        ">🔐 Sign in with Google</a>
-                    </div>
-                """, unsafe_allow_html=True)
+        # Display login UI
+        st.markdown("""
+            <div class="header-container">
+                <h1 class="header-title">🎯 HireFl.ai</h1>
+                <p class="header-subtitle">Intelligent Hiring Management System</p>
+            </div>
+        """, unsafe_allow_html=True)
+        flow = create_flow()
+        auth_url, _ = flow.authorization_url(
+            prompt='consent',
+            access_type='offline',
+            include_granted_scopes='true'
+        )
+        st.markdown(f"""
+            <div style="text-align: center; margin-top: 1rem;">
+                <a href="{auth_url}" target="_self" style="
+                    display: inline-block;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 0.75rem 2rem;
+                    border-radius: 8px;
+                    text-decoration: none;
+                    font-weight: 500;
+                    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+                    transition: transform 0.2s;
+                ">🔐 Sign in with Google</a>
+            </div>
+        """, unsafe_allow_html=True)
 # # OAuth authentication
 # def authenticate():
 #     """Handle Google OAuth authentication with modern UI"""
