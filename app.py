@@ -6,6 +6,7 @@ import uuid
 import re
 import asyncio
 import requests
+import os
 from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -138,6 +139,7 @@ def run_app():
     def get_processing_engine(creds): return ProcessingEngine(creds)
 
     db_handler = get_db_handler()
+    db_handler.create_tables()
     email_handler = get_email_handler(credentials)
     sheets_updater = get_sheets_updater(credentials)
     calendar_handler = get_calendar_handler(credentials)
@@ -483,5 +485,4 @@ if 'credentials' not in st.session_state:
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
         st.link_button("🔐 Login with Google", authorization_url, use_container_width=True, type="primary")
 else:
-    db_handler.create_tables()  # Ensure tables on load
     run_app()
