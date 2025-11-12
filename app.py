@@ -270,9 +270,15 @@ def background_sync(engine, notification_queue):
         st.session_state.sync_in_progress = False
 
 # Data Loading Functions
+@st.cache_resource
+def get_db_handler():
+    """Get cached database handler instance"""
+    return DatabaseHandler()
+
 @st.cache_data(ttl=300)
-def load_all_applicants(db_handler):
-    df = db_handler.fetch_applicants_as_df()
+def load_all_applicants():
+    db = get_db_handler()
+    df = db.fetch_applicants_as_df()
     rename_map = {
         'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
         'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
@@ -284,12 +290,14 @@ def load_all_applicants(db_handler):
     return df
 
 @st.cache_data(ttl=3600)
-def load_statuses(db_handler):
-    return db_handler.get_statuses()
+def load_statuses():
+    db = get_db_handler()
+    return db.get_statuses()
 
 @st.cache_data(ttl=3600)
-def load_interviewers(db_handler):
-    return db_handler.get_interviewers()
+def load_interviewers():
+    db = get_db_handler()
+    return db.get_interviewers()
 
 def set_detail_view(applicant_id):
     st.session_state.view_mode = 'detail'
@@ -363,7 +371,7 @@ def render_dashboard(db_handler, processing_engine):
     # Fetch data with caching
     if st.session_state.cache_timestamp is None or \
        (datetime.datetime.now() - st.session_state.cache_timestamp).total_seconds() > 30:
-        st.session_state.applicants_data = load_all_applicants(db_handler)
+        st.session_state.applicants_data = load_all_applicants()
         st.session_state.cache_timestamp = datetime.datetime.now()
     
     df = st.session_state.applicants_data
@@ -467,8 +475,8 @@ def render_dashboard(db_handler, processing_engine):
 def run_app():
     credentials = st.session_state.credentials
     
-    # Initialize handlers
-    db_handler = DatabaseHandler()
+    # Initialize handlers using cached resources where possible
+    db_handler = get_db_handler()
     email_handler = EmailHandler(credentials)
     sheets_updater = SheetsUpdater(credentials)
     calendar_handler = CalendarHandler(credentials)
