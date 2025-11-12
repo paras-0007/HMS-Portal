@@ -484,9 +484,9 @@ def render_applicants(db_handler, handlers):
         if sort_by == "Recent":
             filtered = filtered.sort_values('created_at', ascending=False)
         elif sort_by == "Name":
-            filtered = filtered.sort_values('Name')
+            filtered = filtered.sort_values('name')  # Changed from 'Name' to 'name'
         elif sort_by == "Status":
-            filtered = filtered.sort_values('Status')
+            filtered = filtered.sort_values('status') # Changed from 'Status' to 'status'
         
         st.markdown(f"<p style='opacity: 0.7;'>Showing {len(filtered)} of {len(applicants)} applicants</p>", unsafe_allow_html=True)
         
@@ -533,7 +533,8 @@ def render_applicants(db_handler, handlers):
                 
                 with col3:
                     status_color = get_status_color(app['status'])
-                    st.markdown(f'<span class="status-badge" style="background: {status_color}; color: white;">{app["Status"]}</span>', unsafe_allow_html=True)
+                    # Changed app["Status"] to app["status"]
+                    st.markdown(f'<span class="status-badge" style="background: {status_color}; color: white;">{app["status"]}</span>', unsafe_allow_html=True)
                 
                 with col4:
                     st.caption(pd.to_datetime(app['created_at']).strftime('%b %d, %Y'))
@@ -555,7 +556,8 @@ def render_applicant_detail(db_handler, handlers):
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown(f'<h1 style="color: #667eea; margin-bottom: 0;">👤 {applicant["Name"]}</h1>', unsafe_allow_html=True)
+        # Changed applicant["Name"] to applicant["name"]
+        st.markdown(f'<h1 style="color: #667eea; margin-bottom: 0;">👤 {applicant["name"]}</h1>', unsafe_allow_html=True)
         st.caption(f"{applicant['domain']} • Applied on {pd.to_datetime(applicant['created_at']).strftime('%b %d, %Y')}")
     
     with col2:
@@ -577,10 +579,12 @@ def render_applicant_detail(db_handler, handlers):
             st.write(f"**Domain:** {applicant['domain']}")
             
             st.subheader("Education")
-            st.write(applicant.get('Education', 'N/A'))
+            # Changed key to lowercase
+            st.write(applicant.get('education', 'N/A'))
             
             st.subheader("Job History")
-            if pd.notna(applicant.get('JobHistory')):
+            # Changed key to lowercase
+            if pd.notna(applicant.get('job_history')):
                 st.markdown(applicant['job_history'])
             else:
                 st.info("No job history available")
@@ -594,10 +598,12 @@ def render_applicant_detail(db_handler, handlers):
             </div>
             """, unsafe_allow_html=True)
             
-            if pd.notna(applicant.get('CV_URL')):
+            # Changed key to lowercase
+            if pd.notna(applicant.get('cv_url')):
                 st.link_button("📄 View Resume", applicant['cv_url'], use_container_width=True)
             
-            if pd.notna(applicant.get('Feedback')):
+            # Changed key to lowercase
+            if pd.notna(applicant.get('feedback')):
                 st.subheader("Feedback")
                 st.info(applicant['feedback'])
     
@@ -751,7 +757,8 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
                 description += f"Applicant Phone: {applicant['phone']}\n"
                 if jd_info:
                     description += f"\nJob Description: {jd_info['url']}\n"
-                if pd.notna(applicant.get('CV_URL')):
+                # Changed key to lowercase
+                if pd.notna(applicant.get('cv_url')):
                     description += f"Resume: {applicant['cv_url']}\n"
                 
                 result = calendar_handler.create_calendar_event(
@@ -762,7 +769,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
                     end_time,
                     event_title,
                     description,
-                    applicant.get('CV_URL'),
+                    applicant.get('cv_url'), # Changed key to lowercase
                     jd_info
                 )
                 
@@ -843,7 +850,8 @@ def render_update_status_tab(db_handler, applicant_id, applicant):
     st.markdown("---")
     st.subheader("📋 Feedback")
     
-    feedback = st.text_area("Add Feedback or Notes", value=applicant.get('Feedback', ''), height=150)
+    # Changed key to lowercase
+    feedback = st.text_area("Add Feedback or Notes", value=applicant.get('feedback', ''), height=150)
     
     if st.button("💾 Save Feedback", type="primary"):
         if db_handler.update_applicant_feedback(applicant_id, feedback):
@@ -1099,12 +1107,13 @@ def render_export_page(db_handler, handlers):
                     'Name': app['name'],
                     'Email': app['email'],
                     'Phone': app['phone'],
-                    'Education': app.get('Education', ''),
-                    'JobHistory': app.get('JobHistory', ''),
-                    'Resume': app.get('CV_URL', ''),
+                    # Changed keys to lowercase
+                    'Education': app.get('education', ''),
+                    'JobHistory': app.get('job_history', ''),
+                    'Resume': app.get('cv_url', ''),
                     'Role': app['domain'],
                     'Status': app['status'],
-                    'Feedback': app.get('Feedback', '')
+                    'Feedback': app.get('feedback', '')
                 })
             
             result = handlers['sheets'].create_export_sheet(data_to_export, columns)
