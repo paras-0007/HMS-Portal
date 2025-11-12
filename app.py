@@ -1103,11 +1103,12 @@ if 'credentials' not in st.session_state:
     else:
         flow = create_flow()
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
-        st.title("Welcome to HMS")
+        st.title("Welcome to Hirefl.ai")
         st.write("Please log in with your Google Account to continue.")
         st.link_button("Login with Google", authorization_url, use_container_width=True)
 else:
     run_app()
+
 
 
 
