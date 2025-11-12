@@ -1,34 +1,34 @@
 import streamlit as st
 import pandas as pd
+import datetime
+import json
+import uuid
+import re
+import requests
 import time
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import threading
 import queue
-import json
-from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_option_menu import option_menu
-import streamlit.components.v1 as components
-import sys
-import os
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Import modules
-from processing_engine import ProcessingEngine
+# Application Modules
 from modules.database_handler import DatabaseHandler
+from modules.drive_handler import DriveHandler
 from modules.email_handler import EmailHandler
 from modules.calendar_handler import CalendarHandler
-from modules.drive_handler import DriveHandler
-from modules.importer import Importer
 from modules.sheet_updater import SheetsUpdater
-from utils.auth import get_credentials
+from processing_engine import ProcessingEngine
+from modules.importer import Importer
+from streamlit_quill import st_quill
 from utils.logger import logger
 
-# Page configuration
+# Page Configuration
 st.set_page_config(
     page_title="HireFl.ai - Smart Hiring Platform",
     page_icon="🚀",
@@ -36,7 +36,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for modern UI
+# Modern CSS styling
 st.markdown("""
 <style>
     /* Modern color scheme */
@@ -79,57 +79,9 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     }
     
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        background-color: transparent;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        padding: 0 24px;
-        background-color: transparent;
-        border-radius: 8px;
-        color: #6b7280;
-        font-weight: 600;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-        color: white;
-    }
-    
-    /* Dataframe styling */
-    .dataframe {
-        font-size: 14px;
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    
-    /* Success/Error message styling */
-    .stSuccess, .stError, .stWarning, .stInfo {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        font-weight: 500;
-    }
-    
     /* Progress bar styling */
     .stProgress > div > div > div > div {
         background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    }
-    
-    /* Sidebar styling */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1e293b 0%, #334155 100%);
-    }
-    
-    /* Container styling */
-    .main-container {
-        padding: 2rem;
-        background: var(--light-bg);
-        border-radius: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        margin-bottom: 2rem;
     }
     
     /* Metric card styling */
@@ -161,99 +113,143 @@ st.markdown("""
         background-color: #f3f4f6 !important;
         transition: background-color 0.2s;
     }
-    
-    /* Loading animation */
-    .loading-spinner {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid rgba(99, 102, 241, 0.3);
-        border-radius: 50%;
-        border-top-color: #6366f1;
-        animation: spin 1s ease-in-out infinite;
-    }
-    
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
 def init_session_state():
     defaults = {
-        'authenticated': False,
-        'credentials': None,
-        'processing_engine': None,
-        'db_handler': None,
+        'view_mode': 'grid',
+        'selected_applicant_id': None,
+        'active_detail_tab': 'Profile',
+        'confirm_delete': False,
+        'schedule_view_active': False,
+        'uploader_key': 0,
+        'resume_uploader_key': 0,
+        'show_sync_dialog': False,
         'sync_in_progress': False,
         'last_sync_time': None,
         'sync_results': {},
-        'current_page': 'dashboard',
+        'notification_queue': queue.Queue(),
         'selected_applicants': [],
         'filter_status': 'All',
         'filter_domain': 'All',
         'search_query': '',
-        'refresh_counter': 0,
-        'notification_queue': queue.Queue(),
-        'background_thread': None,
-        'api_status': {},
         'cache_timestamp': None,
-        'applicants_data': None
+        'applicants_data': None,
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-# Authentication with modern UI
-def authenticate():
-    if not st.session_state.authenticated:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown("""
-            <div style="text-align: center; padding: 3rem 0;">
-                <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                           -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-                           font-size: 3rem; font-weight: 800; margin-bottom: 1rem;">
-                    HireFl.ai
-                </h1>
-                <p style="color: #6b7280; font-size: 1.2rem; margin-bottom: 2rem;">
-                    Smart Hiring Platform with AI-Powered Automation
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            with st.container():
-                st.info("🔐 Click below to authenticate with Google")
-                if st.button("🚀 Authenticate with Google", use_container_width=True):
-                    with st.spinner("Authenticating..."):
-                        credentials = get_credentials()
-                        if credentials:
-                            st.session_state.authenticated = True
-                            st.session_state.credentials = credentials
-                            st.session_state.processing_engine = ProcessingEngine(credentials)
-                            st.session_state.db_handler = DatabaseHandler()
-                            st.success("✅ Authentication successful!")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.error("❌ Authentication failed. Please try again.")
-        return False
-    return True
+init_session_state()
+
+# Authentication Setup
+def create_flow():
+    try:
+        with open('credentials.json') as f:
+            client_config = json.load(f)
+        redirect_uri = "http://localhost:8501"
+    except FileNotFoundError:
+        client_config = {
+            "web": {
+                "client_id": st.secrets["GOOGLE_CLIENT_ID"],
+                "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "redirect_uris": [st.secrets["REDIRECT_URI"]],
+            }
+        }
+        redirect_uri = st.secrets["REDIRECT_URI"]
+
+    scopes = [
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'openid',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/calendar'
+    ]
+    
+    return Flow.from_client_config(
+        client_config=client_config,
+        scopes=scopes,
+        redirect_uri=redirect_uri
+    )
+
+def logout():
+    if 'credentials' in st.session_state:
+        creds = st.session_state.credentials
+        token_to_revoke = creds.refresh_token or creds.token
+        if token_to_revoke:
+            try:
+                requests.post('https://oauth2.googleapis.com/revoke',
+                    params={'token': token_to_revoke},
+                    headers={'content-type': 'application/x-www-form-urlencoded'})
+            except Exception:
+                pass
+
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    
+    if 'code' in st.query_params:
+        st.query_params.clear()
+    
+    st.rerun()
+
+# Utility Functions
+def get_status_color(status):
+    status = status.lower()
+    if 'rejected' in status:
+        return '#FF4B4B'
+    elif 'hired' in status:
+        return '#28a745'
+    elif 'new' in status:
+        return '#007bff'
+    elif 'interview' in status:
+        return '#ffc107'
+    elif 'offer' in status:
+        return '#17a2b8'
+    else:
+        return '#FFFFFF'
+
+def download_file_from_url(url):
+    match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if match:
+        file_id = match.group(1)
+        download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+        response = requests.get(download_url)
+        if response.status_code == 200:
+            return response.content
+    return None
 
 # Background sync function
 def background_sync(engine, notification_queue):
     try:
         notification_queue.put(("info", "🔄 Starting email sync..."))
-        new_apps, failed_classifications = engine.process_new_applications()
+        new_apps = 0
+        failed_classifications = 0
+        
+        messages = engine.email_handler.fetch_unread_emails()
+        if messages:
+            for msg in messages:
+                success = engine.process_single_email(msg['id'])
+                if success:
+                    new_apps += 1
+                else:
+                    failed_classifications += 1
+        
         new_replies = engine.process_replies()
         
         result = {
             'new_applications': new_apps,
             'failed_classifications': failed_classifications,
             'new_replies': new_replies,
-            'timestamp': datetime.now(ZoneInfo("Asia/Kolkata"))
+            'timestamp': datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         }
         
         st.session_state.sync_results = result
@@ -269,12 +265,43 @@ def background_sync(engine, notification_queue):
         notification_queue.put(("success", "✅ Sync completed successfully"))
     except Exception as e:
         notification_queue.put(("error", f"❌ Sync failed: {str(e)}"))
+        logger.error(f"Sync error: {e}", exc_info=True)
     finally:
         st.session_state.sync_in_progress = False
 
+# Data Loading Functions
+@st.cache_data(ttl=300)
+def load_all_applicants(db_handler):
+    df = db_handler.fetch_applicants_as_df()
+    rename_map = {
+        'id': 'Id', 'name': 'Name', 'email': 'Email', 'phone': 'Phone', 'domain': 'Role',
+        'education': 'Education', 'job_history': 'JobHistory', 'cv_url': 'Resume', 'status': 'Status',
+        'feedback': 'Feedback', 'created_at': 'CreatedAt', 'gmail_thread_id': 'GmailThreadId',
+        'last_action_date': 'LastActionDate'
+    }
+    if not df.empty:
+        df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    return df
+
+@st.cache_data(ttl=3600)
+def load_statuses(db_handler):
+    return db_handler.get_statuses()
+
+@st.cache_data(ttl=3600)
+def load_interviewers(db_handler):
+    return db_handler.get_interviewers()
+
+def set_detail_view(applicant_id):
+    st.session_state.view_mode = 'detail'
+    st.session_state.selected_applicant_id = applicant_id
+
+def set_grid_view():
+    st.session_state.view_mode = 'grid'
+    st.session_state.selected_applicant_id = None
+    st.session_state.schedule_view_active = False
+
 # Modern Dashboard
-def render_dashboard():
-    # Header with gradient
+def render_dashboard(db_handler, processing_engine):
     st.markdown("""
     <div class="main-header">
         <h1 style="margin: 0; font-size: 2.5rem;">📊 Dashboard</h1>
@@ -286,7 +313,7 @@ def render_dashboard():
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         if st.session_state.last_sync_time:
-            time_diff = datetime.now(ZoneInfo("Asia/Kolkata")) - st.session_state.last_sync_time
+            time_diff = datetime.datetime.now(ZoneInfo("Asia/Kolkata")) - st.session_state.last_sync_time
             if time_diff < timedelta(minutes=1):
                 sync_text = "Just now"
             elif time_diff < timedelta(hours=1):
@@ -298,14 +325,15 @@ def render_dashboard():
             st.info("🕐 Not synced yet")
     
     with col2:
-        api_stats = st.session_state.processing_engine.get_classification_status() if st.session_state.processing_engine else {}
-        if api_stats:
-            available = api_stats.get('available_keys', 0)
-            total = api_stats.get('total_keys', 0)
-            if available > 0:
-                st.success(f"✅ API Keys: {available}/{total} available")
-            else:
-                st.error(f"❌ API Keys: All exhausted")
+        if processing_engine:
+            api_stats = processing_engine.get_classification_status()
+            if api_stats:
+                available = api_stats.get('available_keys', 0)
+                total = api_stats.get('total_keys', 0)
+                if available > 0:
+                    st.success(f"✅ API Keys: {available}/{total} available")
+                else:
+                    st.error(f"❌ API Keys: All exhausted")
     
     with col3:
         if not st.session_state.sync_in_progress:
@@ -313,10 +341,9 @@ def render_dashboard():
                 st.session_state.sync_in_progress = True
                 thread = threading.Thread(
                     target=background_sync,
-                    args=(st.session_state.processing_engine, st.session_state.notification_queue)
+                    args=(processing_engine, st.session_state.notification_queue)
                 )
                 thread.start()
-                st.session_state.background_thread = thread
                 st.rerun()
         else:
             st.button("⏳ Syncing...", disabled=True, use_container_width=True)
@@ -335,9 +362,9 @@ def render_dashboard():
     
     # Fetch data with caching
     if st.session_state.cache_timestamp is None or \
-       (datetime.now() - st.session_state.cache_timestamp).total_seconds() > 30:
-        st.session_state.applicants_data = st.session_state.db_handler.get_all_applicants()
-        st.session_state.cache_timestamp = datetime.now()
+       (datetime.datetime.now() - st.session_state.cache_timestamp).total_seconds() > 30:
+        st.session_state.applicants_data = load_all_applicants(db_handler)
+        st.session_state.cache_timestamp = datetime.datetime.now()
     
     df = st.session_state.applicants_data
     
@@ -380,7 +407,7 @@ def render_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        if 'Status' in df.columns:
+        if 'Status' in df.columns and len(df) > 0:
             status_counts = df['Status'].value_counts()
             fig = px.pie(
                 values=status_counts.values,
@@ -393,13 +420,13 @@ def render_dashboard():
             st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        if 'Domain' in df.columns:
-            domain_counts = df['Domain'].value_counts().head(10)
+        if 'Role' in df.columns and len(df) > 0:
+            domain_counts = df['Role'].value_counts().head(10)
             fig = px.bar(
                 x=domain_counts.values,
                 y=domain_counts.index,
                 orientation='h',
-                title="Top 10 Domains",
+                title="Top 10 Roles",
                 color=domain_counts.values,
                 color_continuous_scale="Viridis"
             )
@@ -436,519 +463,20 @@ def render_dashboard():
         )
         st.plotly_chart(fig, use_container_width=True)
 
-# Applicants Management Page
-def render_applicants():
-    st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 2.5rem;">👥 Applicants Management</h1>
-        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Review and manage all applications</p>
-    </div>
-    """, unsafe_allow_html=True)
+# Main Application
+def run_app():
+    credentials = st.session_state.credentials
     
-    # Filters
-    col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
+    # Initialize handlers
+    db_handler = DatabaseHandler()
+    email_handler = EmailHandler(credentials)
+    sheets_updater = SheetsUpdater(credentials)
+    calendar_handler = CalendarHandler(credentials)
+    importer = Importer(credentials)
+    drive_handler = DriveHandler(credentials)
+    processing_engine = ProcessingEngine(credentials)
     
-    df = st.session_state.db_handler.get_all_applicants()
-    
-    with col1:
-        search = st.text_input("🔍 Search", placeholder="Name, Email, or Phone", 
-                               value=st.session_state.search_query, key="search_applicants")
-        st.session_state.search_query = search
-    
-    with col2:
-        statuses = ['All'] + list(df['Status'].unique()) if 'Status' in df.columns else ['All']
-        status_filter = st.selectbox("📋 Status", statuses, 
-                                     index=statuses.index(st.session_state.filter_status) 
-                                     if st.session_state.filter_status in statuses else 0)
-        st.session_state.filter_status = status_filter
-    
-    with col3:
-        domains = ['All'] + list(df['Domain'].unique()) if 'Domain' in df.columns else ['All']
-        domain_filter = st.selectbox("💼 Domain", domains,
-                                     index=domains.index(st.session_state.filter_domain) 
-                                     if st.session_state.filter_domain in domains else 0)
-        st.session_state.filter_domain = domain_filter
-    
-    with col4:
-        if st.button("🔄 Refresh", use_container_width=True):
-            st.session_state.refresh_counter += 1
-            st.session_state.cache_timestamp = None
-            st.rerun()
-    
-    with col5:
-        export_ready = st.button("📤 Export", use_container_width=True)
-    
-    # Apply filters
-    filtered_df = df.copy()
-    
-    if search:
-        search_lower = search.lower()
-        filtered_df = filtered_df[
-            filtered_df['Name'].str.lower().str.contains(search_lower, na=False) |
-            filtered_df['Email'].str.lower().str.contains(search_lower, na=False) |
-            filtered_df['Phone'].astype(str).str.contains(search_lower, na=False)
-        ]
-    
-    if status_filter != 'All':
-        filtered_df = filtered_df[filtered_df['Status'] == status_filter]
-    
-    if domain_filter != 'All':
-        filtered_df = filtered_df[filtered_df['Domain'] == domain_filter]
-    
-    # Display count
-    st.info(f"📊 Showing {len(filtered_df)} of {len(df)} applicants")
-    
-    # Bulk actions
-    if len(filtered_df) > 0:
-        col1, col2, col3 = st.columns([1, 1, 4])
-        with col1:
-            select_all = st.checkbox("Select All")
-        
-        # Display applicants in a modern table
-        for idx, applicant in filtered_df.iterrows():
-            with st.container():
-                col1, col2, col3, col4, col5 = st.columns([0.5, 2, 2, 2, 1])
-                
-                with col1:
-                    selected = st.checkbox("", key=f"select_{applicant['ID']}", 
-                                         value=select_all or applicant['ID'] in st.session_state.selected_applicants)
-                    if selected and applicant['ID'] not in st.session_state.selected_applicants:
-                        st.session_state.selected_applicants.append(applicant['ID'])
-                    elif not selected and applicant['ID'] in st.session_state.selected_applicants:
-                        st.session_state.selected_applicants.remove(applicant['ID'])
-                
-                with col2:
-                    st.markdown(f"**{applicant['Name']}**")
-                    st.caption(f"📧 {applicant['Email']}")
-                
-                with col3:
-                    st.text(f"📱 {applicant['Phone']}")
-                    st.caption(f"💼 {applicant['Domain']}")
-                
-                with col4:
-                    status_color = {
-                        'New': '🔵',
-                        'Shortlisted': '🟢',
-                        'Interview Scheduled': '🟡',
-                        'Rejected': '🔴',
-                        'Hired': '✅'
-                    }.get(applicant['Status'], '⚪')
-                    st.text(f"{status_color} {applicant['Status']}")
-                
-                with col5:
-                    if st.button("👁️ View", key=f"view_{applicant['ID']}", use_container_width=True):
-                        show_applicant_details(applicant)
-                
-                st.markdown("---")
-        
-        # Bulk action buttons
-        if st.session_state.selected_applicants:
-            st.success(f"✅ {len(st.session_state.selected_applicants)} applicants selected")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                new_status = st.selectbox("Change Status", 
-                                         ['', 'Shortlisted', 'Interview Scheduled', 'Rejected', 'Hired'])
-            with col2:
-                if st.button("Apply Status", use_container_width=True) and new_status:
-                    with st.spinner("Updating..."):
-                        for app_id in st.session_state.selected_applicants:
-                            st.session_state.db_handler.update_applicant_status(app_id, new_status)
-                        st.success(f"✅ Updated {len(st.session_state.selected_applicants)} applicants")
-                        st.session_state.selected_applicants = []
-                        time.sleep(1)
-                        st.rerun()
-            
-            with col3:
-                if st.button("📧 Send Bulk Email", use_container_width=True):
-                    show_bulk_email_dialog()
-            
-            with col4:
-                if st.button("🗓️ Schedule Interviews", use_container_width=True):
-                    show_bulk_interview_dialog()
-    
-    # Export functionality
-    if export_ready:
-        with st.spinner("Creating export..."):
-            sheets_handler = SheetsUpdater(st.session_state.credentials)
-            export_data = filtered_df.to_dict('records')
-            result = sheets_handler.create_export_sheet(
-                export_data,
-                ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
-            )
-            if result:
-                st.success(f"✅ Export created: {result['title']}")
-                st.markdown(f"📎 [Open Spreadsheet]({result['url']})")
-
-# Show applicant details in a modal-like container
-@st.dialog("Applicant Details", width="large")
-def show_applicant_details(applicant):
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown(f"### {applicant['Name']}")
-        st.text(f"📧 {applicant['Email']}")
-        st.text(f"📱 {applicant['Phone']}")
-        st.text(f"💼 {applicant['Domain']}")
-        st.text(f"📊 Status: {applicant['Status']}")
-    
-    with col2:
-        if applicant.get('CV_URL'):
-            st.markdown(f"📄 [View Resume]({applicant['CV_URL']})")
-        
-        new_status = st.selectbox("Update Status", 
-                                  ['New', 'Shortlisted', 'Interview Scheduled', 'Rejected', 'Hired'],
-                                  index=['New', 'Shortlisted', 'Interview Scheduled', 'Rejected', 'Hired']
-                                  .index(applicant['Status']))
-        
-        if st.button("Update", use_container_width=True):
-            st.session_state.db_handler.update_applicant_status(applicant['ID'], new_status)
-            st.success("✅ Status updated")
-            time.sleep(0.5)
-            st.rerun()
-    
-    # Education and Job History
-    st.markdown("---")
-    st.markdown("### 🎓 Education")
-    st.text(applicant.get('Education', 'Not provided'))
-    
-    st.markdown("### 💼 Work Experience")
-    st.markdown(applicant.get('JobHistory', 'Not provided'))
-    
-    # Communication History
-    st.markdown("---")
-    st.markdown("### 📧 Communication History")
-    comms = st.session_state.db_handler.get_conversations(applicant['ID'])
-    if not comms.empty:
-        for _, comm in comms.iterrows():
-            with st.expander(f"{comm['Subject']} - {comm['CreatedAt']}"):
-                st.text(f"From: {comm['Sender']}")
-                st.text(f"Direction: {comm['Direction']}")
-                st.text_area("Message", comm['Body'], height=150)
-    else:
-        st.info("No communication history")
-
-# Interview Scheduling Page
-def render_scheduling():
-    st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 2.5rem;">🗓️ Interview Scheduling</h1>
-        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Schedule and manage interviews efficiently</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Quick Schedule Section
-    st.subheader("⚡ Quick Schedule")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Get shortlisted applicants
-        df = st.session_state.db_handler.get_all_applicants()
-        shortlisted = df[df['Status'].isin(['Shortlisted', 'New'])]
-        
-        if len(shortlisted) > 0:
-            applicant_options = {f"{row['Name']} ({row['Email']})": row['ID'] 
-                               for _, row in shortlisted.iterrows()}
-            selected_applicant = st.selectbox("Select Applicant", list(applicant_options.keys()))
-            applicant_id = applicant_options[selected_applicant]
-            
-            interviewer_email = st.text_input("Interviewer Email", 
-                                             value=st.session_state.credentials.token['email'])
-            duration = st.slider("Duration (minutes)", 15, 120, 30, 15)
-        else:
-            st.info("No applicants available for scheduling")
-    
-    with col2:
-        if len(shortlisted) > 0:
-            jd_title = st.text_input("Position", "Software Developer")
-            jd_description = st.text_area("Job Description", height=100)
-            
-            if st.button("🔍 Find Available Slots", use_container_width=True):
-                with st.spinner("Finding available slots..."):
-                    calendar_handler = CalendarHandler(st.session_state.credentials)
-                    slots = calendar_handler.find_available_slots(interviewer_email, duration, days_to_check=7)
-                    
-                    if slots:
-                        st.success(f"✅ Found {len(slots[:10])} available slots")
-                        selected_slot = st.selectbox("Select Time Slot", 
-                                                    [s.strftime("%B %d, %Y at %I:%M %p") for s in slots[:10]])
-                        
-                        if st.button("📅 Schedule Interview", use_container_width=True):
-                            slot_index = [s.strftime("%B %d, %Y at %I:%M %p") for s in slots[:10]].index(selected_slot)
-                            selected_time = slots[slot_index]
-                            
-                            applicant = df[df['ID'] == applicant_id].iloc[0]
-                            end_time = selected_time + timedelta(minutes=duration)
-                            
-                            result = calendar_handler.create_calendar_event(
-                                applicant['Name'],
-                                applicant['Email'],
-                                interviewer_email,
-                                selected_time,
-                                end_time,
-                                f"Interview - {applicant['Name']} for {jd_title}",
-                                f"Interview for {jd_title}\n\n{jd_description}",
-                                applicant.get('CV_URL')
-                            )
-                            
-                            if result:
-                                # Send email with ICS
-                                email_handler = EmailHandler(st.session_state.credentials)
-                                email_body = f"""
-                                <h3>Interview Scheduled</h3>
-                                <p>Dear {applicant['Name']},</p>
-                                <p>Your interview has been scheduled for <strong>{selected_time.strftime('%B %d, %Y at %I:%M %p')}</strong>.</p>
-                                <p>Position: <strong>{jd_title}</strong></p>
-                                <p>Duration: <strong>{duration} minutes</strong></p>
-                                <p>Meeting Link: <strong>{result['google_event'].get('hangoutLink', 'Will be shared soon')}</strong></p>
-                                <p>Please find the calendar invite attached.</p>
-                                <p>Best regards,<br>Hiring Team</p>
-                                """
-                                
-                                email_handler.send_email(
-                                    [applicant['Email']],
-                                    f"Interview Scheduled - {jd_title}",
-                                    email_body,
-                                    [{'content': result['ics_data'].encode(),
-                                      'filename': 'interview.ics',
-                                      'maintype': 'text',
-                                      'subtype': 'calendar'}]
-                                )
-                                
-                                st.session_state.db_handler.update_applicant_status(applicant_id, 'Interview Scheduled')
-                                st.success("✅ Interview scheduled and invitation sent!")
-                                st.balloons()
-                    else:
-                        st.warning("⚠️ No available slots found in the next 7 days")
-    
-    # Scheduled Interviews
-    st.markdown("---")
-    st.subheader("📅 Scheduled Interviews")
-    
-    scheduled_df = df[df['Status'] == 'Interview Scheduled']
-    if len(scheduled_df) > 0:
-        for _, applicant in scheduled_df.iterrows():
-            with st.container():
-                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-                
-                with col1:
-                    st.markdown(f"**{applicant['Name']}**")
-                    st.caption(f"📧 {applicant['Email']}")
-                
-                with col2:
-                    st.text(f"💼 {applicant['Domain']}")
-                    st.caption(f"📱 {applicant['Phone']}")
-                
-                with col3:
-                    if st.button("✅ Mark Completed", key=f"complete_{applicant['ID']}", use_container_width=True):
-                        st.session_state.db_handler.update_applicant_status(applicant['ID'], 'Interview Completed')
-                        st.success("✅ Interview marked as completed")
-                        time.sleep(0.5)
-                        st.rerun()
-                
-                with col4:
-                    if st.button("🔄 Reschedule", key=f"reschedule_{applicant['ID']}", use_container_width=True):
-                        st.info("Reschedule functionality coming soon")
-                
-                st.markdown("---")
-    else:
-        st.info("📭 No interviews scheduled yet")
-
-# Import Page
-def render_import():
-    st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 2.5rem;">📥 Import Applications</h1>
-        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Import applications from various sources</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2, tab3 = st.tabs(["📄 Upload File", "🔗 Google Sheets", "📎 Single Resume"])
-    
-    importer = Importer(st.session_state.credentials)
-    
-    with tab1:
-        st.info("📤 Upload a CSV or Excel file with applicant data")
-        uploaded_file = st.file_uploader("Choose file", type=['csv', 'xlsx', 'xls'])
-        
-        if uploaded_file:
-            if st.button("📥 Import Data", use_container_width=True):
-                with st.spinner("Importing data..."):
-                    result, count = importer.import_from_local_file(uploaded_file)
-                    if count > 0:
-                        st.success(result)
-                        st.balloons()
-                    else:
-                        st.error(result)
-    
-    with tab2:
-        st.info("🔗 Import data from a Google Sheets document")
-        sheet_url = st.text_input("Google Sheets URL", 
-                                 placeholder="https://docs.google.com/spreadsheets/d/...")
-        
-        if sheet_url:
-            if st.button("📊 Import from Sheets", use_container_width=True):
-                st.info("Google Sheets import functionality is being implemented")
-    
-    with tab3:
-        st.info("📎 Import a single applicant from their resume")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            resume_file = st.file_uploader("Upload Resume", type=['pdf', 'docx'])
-            if resume_file and st.button("📄 Process Resume", use_container_width=True):
-                with st.spinner("Processing resume..."):
-                    applicant_id = importer.import_from_local_resume(resume_file)
-                    if applicant_id:
-                        st.success(f"✅ Applicant imported successfully! ID: {applicant_id}")
-                        st.balloons()
-                    else:
-                        st.error("❌ Failed to import resume")
-        
-        with col2:
-            resume_url = st.text_input("Or provide Resume URL", 
-                                      placeholder="https://drive.google.com/...")
-            if resume_url and st.button("🔗 Process from URL", use_container_width=True):
-                with st.spinner("Processing resume from URL..."):
-                    applicant_id = importer.import_from_resume(resume_url)
-                    if applicant_id:
-                        st.success(f"✅ Applicant imported successfully! ID: {applicant_id}")
-                        st.balloons()
-                    else:
-                        st.error("❌ Failed to import resume from URL")
-
-# Settings Page
-def render_settings():
-    st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 2.5rem;">⚙️ Settings</h1>
-        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Configure system preferences</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2, tab3 = st.tabs(["🔑 API Configuration", "📊 Database", "🔄 Automation"])
-    
-    with tab1:
-        st.subheader("API Key Status")
-        
-        if st.session_state.processing_engine:
-            api_stats = st.session_state.processing_engine.get_classification_status()
-            
-            if api_stats:
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Total Keys", api_stats.get('total_keys', 0))
-                
-                with col2:
-                    st.metric("Available", api_stats.get('available_keys', 0))
-                
-                with col3:
-                    st.metric("Rate Limited", api_stats.get('rate_limited_keys', 0))
-                
-                # Show detailed status
-                st.markdown("### Detailed Key Status")
-                
-                key_statuses = api_stats.get('key_statuses', {})
-                usage_counts = api_stats.get('usage_counts', {})
-                
-                for i, (key, status) in enumerate(key_statuses.items(), 1):
-                    col1, col2, col3 = st.columns([1, 2, 1])
-                    
-                    with col1:
-                        st.text(f"Key {i}")
-                    
-                    with col2:
-                        if status == "Available":
-                            st.success(f"✅ {status}")
-                        elif status == "Rate Limited":
-                            st.warning(f"⏳ {status}")
-                        else:
-                            st.error(f"❌ {status}")
-                    
-                    with col3:
-                        st.text(f"Uses: {usage_counts.get(key, 0)}")
-    
-    with tab2:
-        st.subheader("Database Statistics")
-        
-        if st.session_state.db_handler:
-            stats = st.session_state.db_handler.get_database_stats()
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Total Applicants", stats.get('total_applicants', 0))
-                st.metric("Total Communications", stats.get('total_communications', 0))
-            
-            with col2:
-                st.metric("Active Threads", stats.get('active_threads', 0))
-                st.metric("Database Size", f"{stats.get('db_size_mb', 0):.2f} MB")
-            
-            if st.button("🗑️ Clean Database", use_container_width=True):
-                with st.spinner("Cleaning database..."):
-                    # Implement database cleanup
-                    st.success("✅ Database cleaned successfully")
-    
-    with tab3:
-        st.subheader("Automation Settings")
-        
-        auto_sync = st.toggle("Enable Auto-Sync", value=False)
-        if auto_sync:
-            sync_interval = st.slider("Sync Interval (minutes)", 5, 60, 15, 5)
-            st.info(f"📊 Emails will be synced every {sync_interval} minutes")
-        
-        st.markdown("---")
-        
-        st.subheader("Email Filters")
-        keywords = st.text_area("Application Keywords", 
-                               value='"job application", "applying for", resume, cv',
-                               help="Keywords to identify job application emails")
-        
-        if st.button("💾 Save Settings", use_container_width=True):
-            st.success("✅ Settings saved successfully")
-
-# Bulk email dialog
-@st.dialog("Send Bulk Email", width="large")
-def show_bulk_email_dialog():
-    subject = st.text_input("Subject")
-    body = st.text_area("Email Body", height=200)
-    
-    if st.button("Send", use_container_width=True):
-        with st.spinner("Sending emails..."):
-            email_handler = EmailHandler(st.session_state.credentials)
-            df = st.session_state.db_handler.get_all_applicants()
-            
-            for app_id in st.session_state.selected_applicants:
-                applicant = df[df['ID'] == app_id].iloc[0]
-                personalized_body = body.replace("{name}", applicant['Name'])
-                email_handler.send_email([applicant['Email']], subject, personalized_body)
-            
-            st.success(f"✅ Sent {len(st.session_state.selected_applicants)} emails")
-            st.session_state.selected_applicants = []
-            time.sleep(1)
-            st.rerun()
-
-# Bulk interview dialog
-@st.dialog("Schedule Bulk Interviews", width="large")
-def show_bulk_interview_dialog():
-    interviewer_email = st.text_input("Interviewer Email", 
-                                     value=st.session_state.credentials.token['email'])
-    duration = st.slider("Duration (minutes)", 15, 120, 30, 15)
-    position = st.text_input("Position", "Software Developer")
-    
-    if st.button("Find Slots", use_container_width=True):
-        st.info("Bulk scheduling functionality coming soon")
-
-# Main App
-def main():
-    init_session_state()
-    
-    if not authenticate():
-        return
-    
-    # Modern navigation sidebar
+    # Sidebar
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 2rem 0;">
@@ -957,10 +485,22 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
+        # User info
+        if st.session_state.user_info:
+            st.image(st.session_state.user_info['picture'], width=80)
+            st.markdown(f"**{st.session_state.user_info['given_name']}**")
+        
+        st.divider()
+        
+        if st.button("🚪 Logout", use_container_width=True):
+            logout()
+        
+        st.divider()
+        
         selected = option_menu(
             menu_title=None,
-            options=["Dashboard", "Applicants", "Scheduling", "Import", "Settings"],
-            icons=["graph-up", "people", "calendar", "cloud-upload", "gear"],
+            options=["Dashboard", "Applicants", "Settings"],
+            icons=["graph-up", "people", "gear"],
             default_index=0,
             styles={
                 "container": {"padding": "0!important", "background-color": "transparent"},
@@ -981,32 +521,51 @@ def main():
                 },
             }
         )
-        
-        # User info at bottom
-        st.markdown("---")
-        if st.session_state.credentials:
-            email = st.session_state.credentials.token.get('email', 'User')
-            st.markdown(f"""
-            <div style="color: #cbd5e1; text-align: center; padding: 1rem;">
-                <p style="margin: 0; font-size: 0.9rem;">👤 {email}</p>
-                <p style="margin: 0.5rem 0 0 0; font-size: 0.8rem; opacity: 0.7;">
-                    v1.0.0 | Production
+    
+    # Main content routing
+    if selected == "Dashboard":
+        render_dashboard(db_handler, processing_engine)
+    elif selected == "Applicants":
+        st.info("Applicants view - Use your existing applicant management code here")
+    elif selected == "Settings":
+        st.info("Settings view - Use your existing settings code here")
+
+# Authentication Flow
+if 'credentials' not in st.session_state:
+    if 'code' in st.query_params:
+        try:
+            flow = create_flow()
+            flow.fetch_token(code=st.query_params['code'])
+            
+            st.session_state.credentials = flow.credentials
+            user_info_service = build('oauth2', 'v2', credentials=st.session_state.credentials)
+            user_info = user_info_service.userinfo().get().execute()
+            st.session_state.user_info = user_info
+            
+            st.query_params.clear()
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Error during authentication: {e}")
+    else:
+        # Modern login page
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+            <div style="text-align: center; padding: 3rem 0;">
+                <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                           -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                           font-size: 3rem; font-weight: 800; margin-bottom: 1rem;">
+                    HireFl.ai
+                </h1>
+                <p style="color: #6b7280; font-size: 1.2rem; margin-bottom: 2rem;">
+                    Smart Hiring Platform with AI-Powered Automation
                 </p>
             </div>
             """, unsafe_allow_html=True)
-    
-    # Route to selected page
-    if selected == "Dashboard":
-        render_dashboard()
-    elif selected == "Applicants":
-        render_applicants()
-    elif selected == "Scheduling":
-        render_scheduling()
-    elif selected == "Import":
-        render_import()
-    elif selected == "Settings":
-        render_settings()
-
-if __name__ == "__main__":
-    main()
-
+            
+            flow = create_flow()
+            authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline', include_granted_scopes='true')
+            st.link_button("🚀 Login with Google", authorization_url, use_container_width=True)
+else:
+    run_app()
