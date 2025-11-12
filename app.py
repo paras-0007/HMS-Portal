@@ -74,10 +74,10 @@ CUSTOM_CSS = """
     }
     
     .applicant-card {
-        background: white;
+        background: rgba(255, 255, 255, 0.05);
         padding: 1.5rem;
         border-radius: 12px;
-        border: 1px solid #e0e0e0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         transition: all 0.3s ease;
         cursor: pointer;
         margin-bottom: 1rem;
@@ -158,15 +158,41 @@ CUSTOM_CSS = """
         max-width: 80%;
     }
     
+    
     .chat-incoming {
-        background: #f0f0f0;
+        background: rgba(102, 126, 234, 0.1);
         margin-right: auto;
+        border: 1px solid rgba(102, 126, 234, 0.2);
     }
     
     .chat-outgoing {
-        background: #667eea;
-        color: white;
+        background: rgba(86, 171, 47, 0.1);
         margin-left: auto;
+        border: 1px solid rgba(86, 171, 47, 0.2);
+    }
+
+    
+    .card-text {
+        color: inherit;
+    }
+    
+    [data-testid="stSidebar"] .stButton button {
+        color: white !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    [data-testid="stSidebar"] .stButton button:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+        border-color: white !important;
+    }
+    
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] div {
+        color: white !important;
     }
 </style>
 """
@@ -185,7 +211,8 @@ def init_session_state():
         'resume_uploader_key': 0,
         'show_sync_dialog': False,
         'sync_in_progress': False,
-        'active_detail_tab': 'Profile'
+        'active_detail_tab': 'Profile',
+        'last_data_refresh': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -255,6 +282,33 @@ def create_metric_card(title, value, icon, gradient_class=""):
 def get_db_handler():
     return DatabaseHandler()
 
+
+@st.cache_data(ttl=300)
+def fetch_applicants_cached():
+    db = get_db_handler()
+    return db.fetch_applicants_as_df()
+
+@st.cache_data(ttl=300)
+def fetch_statuses_cached():
+    db = get_db_handler()
+    return db.get_statuses()
+
+@st.cache_data(ttl=300)
+def fetch_interviewers_cached():
+    db = get_db_handler()
+    return db.get_interviewers()
+
+@st.cache_data(ttl=300)
+def fetch_jd_cached():
+    db = get_db_handler()
+    return db.get_job_descriptions()
+
+def clear_all_caches():
+    clear_all_caches()
+    st.session_state.last_data_refresh = datetime.datetime.now()
+
+
+
 def get_handlers(creds):
     return {
         'email': EmailHandler(creds),
@@ -297,8 +351,8 @@ def render_sidebar(user_info):
             st.rerun()
         
         st.markdown("---")
-        u_name = html.escape(user_info.get('name', 'User'))
-        u_email = html.escape(user_info.get('email', ''))
+        u_name = html.escape(html.escape(user_info.get("name", "User")))
+        u_email = html.escape(html.escape(user_info.get("email", "")))
     
         st.markdown(f"""
         <div style="text-align: center; padding: 1rem;">
@@ -364,7 +418,7 @@ def show_sync_dialog(processing_engine):
         if failed > 0:
             st.warning(f"⚠️ {failed} application(s) failed to process")
         
-        st.cache_data.clear()
+        clear_all_caches()
         
         if st.button("✔️ Done", use_container_width=True, type="primary"):
             st.session_state.show_sync_dialog = False
@@ -374,7 +428,7 @@ def show_sync_dialog(processing_engine):
 def render_dashboard(db_handler):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 2rem;">📊 Dashboard</h1>', unsafe_allow_html=True)
     
-    applicants = db_handler.fetch_applicants_as_df()
+    applicants = fetch_applicants_cached()
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -436,7 +490,7 @@ def render_dashboard(db_handler):
             <div class="timeline-item">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong>{app['name']}</strong> applied for <em>{app['domain']}</em>
+                        <strong>{html.escape(str(app["name"]))}</strong> applied for <em>{html.escape(str(app["domain"]))}</em>
                     </div>
                     <div style="opacity: 0.7; font-size: 0.85rem;">{created_date}</div>
                 </div>
@@ -448,8 +502,8 @@ def render_dashboard(db_handler):
 def render_applicants(db_handler, handlers):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 1rem;">👥 Applicants</h1>', unsafe_allow_html=True)
     
-    applicants = db_handler.fetch_applicants_as_df()
-    status_list = db_handler.get_statuses()
+    applicants = fetch_applicants_cached()
+    status_list = fetch_statuses_cached()
     
     col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
     
@@ -503,15 +557,15 @@ def render_applicants(db_handler, handlers):
                     card_html = f"""
                     <div class="applicant-card" style="min-height: 200px;">
                         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                            <h3 style="margin: 0; color: #333;">{app['name']}</h3>
+                            <h3 style="margin: 0; color: #333;">{html.escape(str(app["name"]))}</h3>
                             <span class="status-badge" style="background: {status_color}; color: white;">
-                                {app['status']}
+                                {html.escape(str(app["status"]))}
                             </span>
                         </div>
                         <div style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
-                            <strong>📧</strong> {app['email']}<br>
-                            <strong>📱</strong> {app['phone']}<br>
-                            <strong>💼</strong> {app['domain']}
+                            <strong>📧</strong> {html.escape(str(app["email"]))}<br>
+                            <strong>📱</strong> {html.escape(str(app["phone"]))}<br>
+                            <strong>💼</strong> {html.escape(str(app["domain"]))}
                         </div>
                         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee; font-size: 0.85rem; color: #999;">
                             Applied: {pd.to_datetime(app['created_at']).strftime('%b %d, %Y')}
@@ -529,7 +583,7 @@ def render_applicants(db_handler, handlers):
                 col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
                 
                 with col1:
-                    st.write(f"**{app['name']}**")
+                    st.write(f"**{html.escape(str(app["name"]))}**")
                     st.caption(app['email'])
                 
                 with col2:
@@ -555,13 +609,13 @@ def render_applicants(db_handler, handlers):
 
 def render_applicant_detail(db_handler, handlers):
     applicant_id = st.session_state.selected_applicant_id
-    applicants = db_handler.fetch_applicants_as_df()
+    applicants = fetch_applicants_cached()
     applicant = applicants[applicants['id'] == applicant_id].iloc[0]
     
     col1, col2 = st.columns([3, 1])
     with col1:
         # Changed applicant["Name"] to applicant["name"]
-        st.markdown(f'<h1 style="color: #667eea; margin-bottom: 0;">👤 {applicant["name"]}</h1>', unsafe_allow_html=True)
+        st.markdown(f'<h1 style="color: #667eea; margin-bottom: 0;">👤 {html.escape(str(applicant["name"]))}</h1>', unsafe_allow_html=True)
         st.caption(f"{applicant['domain']} • Applied on {pd.to_datetime(applicant['created_at']).strftime('%b %d, %Y')}")
     
     with col2:
@@ -598,7 +652,7 @@ def render_applicant_detail(db_handler, handlers):
             st.markdown(f"""
             <div style="background: {status_color}; color: white; padding: 1.5rem; border-radius: 12px; text-align: center; margin-bottom: 1rem;">
                 <div style="font-size: 0.9rem; opacity: 0.9;">Current Status</div>
-                <div style="font-size: 1.5rem; font-weight: 700; margin-top: 0.5rem;">{applicant['status']}</div>
+                <div style="font-size: 1.5rem; font-weight: 700; margin-top: 0.5rem;">{html.escape(str(applicant["status"]))}</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -634,7 +688,7 @@ def render_applicant_detail(db_handler, handlers):
                         st.success("Applicant deleted successfully")
                         st.session_state.confirm_delete = False
                         st.session_state.page = 'Applicants'
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
             with col2:
                 if st.button("❌ Cancel"):
@@ -654,11 +708,11 @@ def render_communications_tab(db_handler, email_handler, applicant_id, applicant
             st.markdown(f"""
             <div class="chat-bubble {bubble_class}">
                 <div style="font-weight: 600; margin-bottom: 0.5rem;">
-                    {conv['sender']} <span style="opacity: 0.7; font-weight: 400; font-size: 0.85rem;">
+                    {html.escape(str(conv["sender"]))} <span style="opacity: 0.7; font-weight: 400; font-size: 0.85rem;">
                     • {pd.to_datetime(conv['sent_at']).strftime('%b %d, %Y %I:%M %p')}</span>
                 </div>
-                <div style="font-weight: 600; margin-bottom: 0.25rem;">{conv['subject']}</div>
-                <div>{conv['body'][:500]}{'...' if len(conv['body']) > 500 else ''}</div>
+                <div style="font-weight: 600; margin-bottom: 0.25rem;">{html.escape(str(conv["subject"]))}</div>
+                <div>{html.escape(str(conv["body"])[:500])}{'...' if len(conv['body']) > 500 else ''}</div>
             </div>
             """, unsafe_allow_html=True)
     else:
@@ -702,7 +756,7 @@ def render_communications_tab(db_handler, email_handler, applicant_id, applicant
                     if not thread_id and msg.get('threadId'):
                         db_handler.update_applicant_thread_id(applicant_id, msg['threadId'])
                     
-                    st.cache_data.clear()
+                    clear_all_caches()
                     st.rerun()
                 else:
                     st.error("Failed to send email.")
@@ -712,8 +766,8 @@ def render_communications_tab(db_handler, email_handler, applicant_id, applicant
 def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
     st.subheader("📅 Schedule Interview")
     
-    interviewers = db_handler.get_interviewers()
-    jd_list = db_handler.get_job_descriptions()
+    interviewers = fetch_interviewers_cached()
+    jd_list = fetch_jd_cached()
     
     if interviewers.empty:
         st.warning("No interviewers configured. Add interviewers in Settings.")
@@ -823,7 +877,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
                     )
                     
                     st.success("✅ Interview scheduled and invitation sent!")
-                    st.cache_data.clear()
+                    clear_all_caches()
                     del st.session_state[f'available_slots_{applicant_id}']
                     st.rerun()
                 else:
@@ -832,7 +886,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
 def render_update_status_tab(db_handler, applicant_id, applicant):
     st.subheader("📝 Update Status")
     
-    status_list = db_handler.get_statuses()
+    status_list = fetch_statuses_cached()
     current_status = applicant['status']
     
     col1, col2 = st.columns([2, 1])
@@ -846,7 +900,7 @@ def render_update_status_tab(db_handler, applicant_id, applicant):
         if st.button("💾 Update Status", type="primary", use_container_width=True):
             if db_handler.update_applicant_status(applicant_id, new_status):
                 st.success(f"Status updated to: {new_status}")
-                st.cache_data.clear()
+                clear_all_caches()
                 st.rerun()
             else:
                 st.error("Failed to update status")
@@ -860,7 +914,7 @@ def render_update_status_tab(db_handler, applicant_id, applicant):
     if st.button("💾 Save Feedback", type="primary"):
         if db_handler.update_applicant_feedback(applicant_id, feedback):
             st.success("Feedback saved successfully")
-            st.cache_data.clear()
+            clear_all_caches()
             st.rerun()
         else:
             st.error("Failed to save feedback")
@@ -868,7 +922,7 @@ def render_update_status_tab(db_handler, applicant_id, applicant):
 def render_communications_page(db_handler):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 1rem;">💬 Communications</h1>', unsafe_allow_html=True)
     
-    applicants = db_handler.fetch_applicants_as_df()
+    applicants = fetch_applicants_cached()
     
     if applicants.empty:
         st.info("No applicants with communications yet.")
@@ -886,7 +940,7 @@ def render_communications_page(db_handler):
     for _, app in filtered.iterrows():
         conversations = db_handler.get_conversations(app['id'])
         
-        with st.expander(f"💬 {app['name']} ({app['email']}) - {len(conversations)} message(s)"):
+        with st.expander(f"💬 {html.escape(str(app["name"]))} ({html.escape(str(app["email"]))}) - {len(conversations)} message(s)"):
             if not conversations.empty:
                 for _, conv in conversations.iterrows():
                     is_outgoing = conv['direction'] == 'Outgoing'
@@ -895,11 +949,11 @@ def render_communications_page(db_handler):
                     st.markdown(f"""
                     <div class="chat-bubble {bubble_class}">
                         <div style="font-weight: 600; margin-bottom: 0.5rem;">
-                            {conv['sender']} <span style="opacity: 0.7; font-weight: 400; font-size: 0.85rem;">
+                            {html.escape(str(conv["sender"]))} <span style="opacity: 0.7; font-weight: 400; font-size: 0.85rem;">
                             • {pd.to_datetime(conv['sent_at']).strftime('%b %d, %Y %I:%M %p')}</span>
                         </div>
-                        <div style="font-weight: 600; margin-bottom: 0.25rem;">{conv['subject']}</div>
-                        <div>{conv['body'][:300]}{'...' if len(conv['body']) > 300 else ''}</div>
+                        <div style="font-weight: 600; margin-bottom: 0.25rem;">{html.escape(str(conv["subject"]))}</div>
+                        <div>{html.escape(str(conv["body"])[:300])}{'...' if len(conv['body']) > 300 else ''}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -1018,7 +1072,7 @@ def render_import_page(db_handler, handlers):
                     if count > 0:
                         st.success(message)
                         st.session_state.uploader_key += 1
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.error(message)
@@ -1035,7 +1089,7 @@ def render_import_page(db_handler, handlers):
                         inserted, skipped = handlers['importer']._process_dataframe(data)
                         st.success(f"Import complete! Added: {inserted}, Skipped: {skipped}")
                         st.session_state.g_sheet_url = ""
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.error("Could not read sheet data")
@@ -1052,7 +1106,7 @@ def render_import_page(db_handler, handlers):
                     result = handlers['importer'].import_from_resume(resume_url)
                     if result:
                         st.success("Resume imported successfully!")
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.error("Failed to import resume")
@@ -1071,15 +1125,15 @@ def render_import_page(db_handler, handlers):
                     if result:
                         st.success("Resume imported successfully!")
                         st.session_state.resume_uploader_key += 1
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.error("Failed to import resume")
 def render_export_page(db_handler, handlers):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 1rem;">📤 Export Applicants</h1>', unsafe_allow_html=True)
     
-    applicants = db_handler.fetch_applicants_as_df()
-    status_list = db_handler.get_statuses()
+    applicants = fetch_applicants_cached()
+    status_list = fetch_statuses_cached()
     
     st.markdown("### Filter & Export")
     
@@ -1127,7 +1181,7 @@ def render_export_page(db_handler, handlers):
                 db_handler.insert_export_log(result['title'], result['url'])
                 st.success("✅ Export successful!")
                 st.markdown(f"[📊 Open Google Sheet]({result['url']})")
-                st.cache_data.clear()
+                clear_all_caches()
             else:
                 st.error("Export failed")
     
@@ -1151,7 +1205,7 @@ def render_export_page(db_handler, handlers):
                 if st.button("🗑️", key=f"del_export_{log['id']}"):
                     if db_handler.delete_export_log(log['id']):
                         st.success("Deleted")
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
     else:
         st.info("No recent exports")
@@ -1159,9 +1213,9 @@ def render_export_page(db_handler, handlers):
 def render_settings_page(db_handler, handlers):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 1rem;">⚙️ Settings</h1>', unsafe_allow_html=True)
     
-    status_list = db_handler.get_statuses()
-    interviewer_list = db_handler.get_interviewers()
-    jd_list = db_handler.get_job_descriptions()
+    status_list = fetch_statuses_cached()
+    interviewer_list = fetch_interviewers_cached()
+    jd_list = fetch_jd_cached()
     
     tab1, tab2, tab3 = st.tabs(["📊 Statuses", "👥 Interviewers", "📄 Job Descriptions"])
     
@@ -1181,7 +1235,7 @@ def render_settings_page(db_handler, handlers):
                             st.error(err)
                         else:
                             st.success(f"Deleted '{status}'")
-                            st.cache_data.clear()
+                            clear_all_caches()
                             st.rerun()
         
         with col2:
@@ -1191,7 +1245,7 @@ def render_settings_page(db_handler, handlers):
                 if st.form_submit_button("➕ Add", use_container_width=True):
                     if new_status and db_handler.add_status(new_status):
                         st.success(f"Added '{new_status}'")
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.warning("Invalid or duplicate status")
@@ -1209,7 +1263,7 @@ def render_settings_page(db_handler, handlers):
                     if cols[1].button("🗑️", key=f"del_interviewer_{interviewer['id']}"):
                         if db_handler.delete_interviewer(interviewer['id']):
                             st.success("Deleted")
-                            st.cache_data.clear()
+                            clear_all_caches()
                             st.rerun()
             else:
                 st.info("No interviewers configured")
@@ -1222,7 +1276,7 @@ def render_settings_page(db_handler, handlers):
                 if st.form_submit_button("➕ Add", use_container_width=True):
                     if name and email and db_handler.add_interviewer(name, email):
                         st.success("Added interviewer")
-                        st.cache_data.clear()
+                        clear_all_caches()
                         st.rerun()
                     else:
                         st.warning("Invalid or duplicate email")
@@ -1240,7 +1294,7 @@ def render_settings_page(db_handler, handlers):
                     if cols[1].button("🗑️", key=f"del_jd_{jd['id']}"):
                         if db_handler.delete_job_description(jd['id']):
                             st.success("Deleted")
-                            st.cache_data.clear()
+                            clear_all_caches()
                             st.rerun()
             else:
                 st.info("No job descriptions uploaded")
@@ -1263,7 +1317,7 @@ def render_settings_page(db_handler, handlers):
                             
                             if drive_url and db_handler.add_job_description(jd_name, drive_url, jd_file.name):
                                 st.success("Added JD")
-                                st.cache_data.clear()
+                                clear_all_caches()
                                 st.rerun()
                             else:
                                 st.error("Failed to add JD")
@@ -1338,4 +1392,3 @@ if 'credentials' not in st.session_state:
             st.link_button("🔐 Login with Google", authorization_url, use_container_width=True, type="primary")
 else:
     run_app()
-
