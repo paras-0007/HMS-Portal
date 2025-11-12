@@ -4,6 +4,7 @@ import datetime
 import json
 import uuid
 import re
+import html
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
@@ -296,11 +297,14 @@ def render_sidebar(user_info):
             st.rerun()
         
         st.markdown("---")
+        u_name = html.escape(user_info.get('name', 'User'))
+        u_email = html.escape(user_info.get('email', ''))
+    
         st.markdown(f"""
         <div style="text-align: center; padding: 1rem;">
             <div style="opacity: 0.8; font-size: 0.85rem;">Logged in as</div>
-            <div style="font-weight: 600; margin-top: 0.25rem;">{user_info.get('name', 'User')}</div>
-            <div style="opacity: 0.7; font-size: 0.8rem;">{user_info.get('email', '')}</div>
+            <div style="font-weight: 600; margin-top: 0.25rem;">{u_name}</div>
+            <div style="opacity: 0.7; font-size: 0.8rem;">{u_email}</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1004,7 +1008,8 @@ def render_import_page(db_handler, handlers):
     
     with tab1:
         st.markdown("### Upload CSV or Excel File")
-        uploaded_file = st.file_uploader("Choose file", type=['csv', 'xlsx', 'xls'], key=st.session_state.uploader_key)
+        # FIX: Added 'bulk_' prefix to the key
+        uploaded_file = st.file_uploader("Choose file", type=['csv', 'xlsx', 'xls'], key=f"bulk_{st.session_state.uploader_key}")
         
         if uploaded_file:
             if st.button("📥 Import from File", type="primary"):
@@ -1056,7 +1061,8 @@ def render_import_page(db_handler, handlers):
     
     with tab4:
         st.markdown("### Upload Resume File")
-        resume_file = st.file_uploader("Choose resume", type=['pdf', 'docx'], key=st.session_state.resume_uploader_key)
+        # FIX: Added 'single_resume_' prefix to the key
+        resume_file = st.file_uploader("Choose resume", type=['pdf', 'docx'], key=f"single_resume_{st.session_state.resume_uploader_key}")
         
         if resume_file:
             if st.button("📥 Import Resume File", type="primary"):
@@ -1069,7 +1075,6 @@ def render_import_page(db_handler, handlers):
                         st.rerun()
                     else:
                         st.error("Failed to import resume")
-
 def render_export_page(db_handler, handlers):
     st.markdown('<h1 style="color: #667eea; margin-bottom: 1rem;">📤 Export Applicants</h1>', unsafe_allow_html=True)
     
@@ -1333,3 +1338,4 @@ if 'credentials' not in st.session_state:
             st.link_button("🔐 Login with Google", authorization_url, use_container_width=True, type="primary")
 else:
     run_app()
+
