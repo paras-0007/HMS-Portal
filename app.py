@@ -18,7 +18,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import modules
-from modules.processing_engine import ProcessingEngine
+from processing_engine import ProcessingEngine
 from modules.database_handler import DatabaseHandler
 from modules.email_handler import EmailHandler
 from modules.calendar_handler import CalendarHandler
@@ -1009,3 +1009,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
