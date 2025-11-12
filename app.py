@@ -26,16 +26,11 @@ import os
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-
 def create_flow():
-    """
-    Creates a Google OAuth Flow object.
-    Works in both local (credentials.json) and deployed (Streamlit Cloud) modes.
-    """
     scopes = [
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'https://www.googleapis.com/auth/userinfo.email',
         'openid',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify',
         'https://www.googleapis.com/auth/drive.file',
@@ -43,29 +38,54 @@ def create_flow():
         'https://www.googleapis.com/auth/calendar',
     ]
 
-    # Try local credentials first
     try:
         with open("credentials.json") as f:
             client_config = json.load(f)
         redirect_uri = "http://localhost:8501"
     except FileNotFoundError:
-        # Use Streamlit secrets (production)
         client_config = {
             "web": {
                 "client_id": st.secrets["GOOGLE_CLIENT_ID"],
                 "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
                 "redirect_uris": [st.secrets["REDIRECT_URI"]],
             }
         }
         redirect_uri = st.secrets["REDIRECT_URI"]
 
-    # Create flow and explicitly set redirect URI
-    flow = Flow.from_client_config(client_config=client_config, scopes=scopes)
-    flow.redirect_uri = redirect_uri
+    flow = Flow.from_client_config(client_config, scopes=scopes)
+    flow.redirect_uri = redirect_uri          # make it explicit
     return flow
+
+
+def authenticate():
+    if "code" in st.query_params:
+        try:
+            flow = create_flow()
+            flow.fetch_token(code=st.query_params["code"])
+            creds = flow.credentials
+            st.session_state["credentials"] = creds
+            st.session_state["authenticated"] = True
+
+            user_service = build("oauth2", "v2", credentials=creds)
+            user_info = user_service.userinfo().get().execute()
+            st.session_state["user_info"] = user_info
+
+            st.query_params.clear()
+            st.success(f"✅ Logged in as {user_info.get('email')}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+            st.query_params.clear()
+    else:
+        flow = create_flow()
+        flow.redirect_uri = st.secrets["REDIRECT_URI"]   # always set
+        auth_url, _ = flow.authorization_url(
+            prompt="consent", access_type="offline", include_granted_scopes="true"
+        )
+        st.markdown(f'<a href="{auth_url}">🔐 Sign in with Google</a>', unsafe_allow_html=True)
+
 # Page config
 st.set_page_config(
     page_title="HireFl.ai - Smart Hiring Platform",
@@ -267,80 +287,6 @@ def init_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-def authenticate():
-    """
-    Handles Google OAuth login flow.
-    Matches app.py logic and ensures redirect_uri mismatch never occurs.
-    """
-    if 'code' in st.query_params:
-        # --- OAuth Callback: Exchange code for tokens ---
-        with st.spinner("Completing authentication..."):
-            try:
-                flow = create_flow()
-                flow.fetch_token(code=st.query_params['code'])
-
-                creds = flow.credentials
-                st.session_state['credentials'] = creds
-                st.session_state['authenticated'] = True
-
-                # Fetch user profile
-                service = build('oauth2', 'v2', credentials=creds)
-                user_info = service.userinfo().get().execute()
-                st.session_state['user_info'] = user_info
-                st.session_state['email'] = user_info.get('email', 'Unknown User')
-
-                # Initialize app modules
-                st.session_state['processing_engine'] = ProcessingEngine(creds)
-                st.session_state['db_handler'] = DatabaseHandler()
-
-                # Clean query params and rerun
-                st.query_params.clear()
-                st.success(f"✅ Welcome, {user_info.get('given_name', 'User')}!")
-                time.sleep(0.6)
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Authentication failed: {str(e)}")
-                st.query_params.clear()
-
-    else:
-        # --- Initial Login Page ---
-        st.markdown("""
-            <div class="header-container">
-                <h1 class="header-title">🎯 HireFl.ai</h1>
-                <p class="header-subtitle">Smart Hiring Management System</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-        try:
-            flow = create_flow()
-            # Force explicit redirect URI (prevents Google 403)
-            flow.redirect_uri = st.secrets["REDIRECT_URI"]
-
-            auth_url, _ = flow.authorization_url(
-                prompt='consent',
-                access_type='offline',
-                include_granted_scopes='true'
-            )
-
-            st.markdown(f"""
-                <div style="text-align: center; margin-top: 2rem;">
-                    <a href="{auth_url}" target="_self" style="
-                        display: inline-block;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        padding: 0.8rem 2rem;
-                        border-radius: 8px;
-                        text-decoration: none;
-                        font-weight: 500;
-                        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-                        transition: transform 0.2s;
-                    ">🔐 Sign in with Google</a>
-                </div>
-            """, unsafe_allow_html=True)
-
-        except Exception as e:
-            st.error(f"OAuth setup failed: {e}")
 # # OAuth authentication
 # def authenticate():
 #     """Handle Google OAuth authentication with modern UI"""
