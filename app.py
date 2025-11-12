@@ -425,7 +425,7 @@ def render_dashboard(db_handler):
     
     st.markdown("### 📅 Recent Activity Timeline")
     if not applicants.empty:
-        recent = applicants.sort_values('CreatedAt', ascending=False).head(10)
+        recent = applicants.sort_values('created_at', ascending=False).head(10)
         for _, app in recent.iterrows():
             created_date = pd.to_datetime(app['created_at']).strftime('%b %d, %Y %I:%M %p')
             st.markdown(f"""
@@ -482,7 +482,7 @@ def render_applicants(db_handler, handlers):
             filtered = filtered[filtered['domain'].isin(domain_filter)]
         
         if sort_by == "Recent":
-            filtered = filtered.sort_values('CreatedAt', ascending=False)
+            filtered = filtered.sort_values('created_at', ascending=False)
         elif sort_by == "Name":
             filtered = filtered.sort_values('Name')
         elif sort_by == "Status":
