@@ -22,6 +22,8 @@ from modules.sheet_updater import SheetsUpdater
 from processing_engine import ProcessingEngine
 from modules.importer import Importer
 from streamlit_quill import st_quill
+import os
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 # --- Page Configuration ---
 st.set_page_config(page_title="HR Applicant Dashboard", page_icon="📑", layout="wide")
@@ -56,6 +58,7 @@ def create_flow():
         'openid',
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/gmail.send',  # <--- Add this line
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/calendar'
