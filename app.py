@@ -113,7 +113,8 @@ CUSTOM_CSS = """
     [data-testid="stSidebar"] h2, 
     [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] div {
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] label {
         color: white !important;
     }
     
@@ -148,10 +149,18 @@ CUSTOM_CSS = """
     .card-text {
         color: inherit;
     }
+    
+    .pagination-info {
+        text-align: center;
+        padding: 1rem;
+        opacity: 0.8;
+    }
 </style>
 """
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+ITEMS_PER_PAGE = 30
 
 def init_session_state():
     defaults = {
@@ -165,7 +174,9 @@ def init_session_state():
         'statuses_list': None,
         'interviewers_list': None,
         'jd_list': None,
-        'last_refresh': None
+        'last_refresh': None,
+        'current_page': 1,
+        'filters_applied': False
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -216,14 +227,13 @@ def get_db_handler():
 def load_all_data():
     """Load all data once into session state"""
     if not st.session_state.data_loaded:
-        with st.spinner("Loading data..."):
-            db = get_db_handler()
-            st.session_state.applicants_data = db.fetch_applicants_as_df()
-            st.session_state.statuses_list = db.get_statuses()
-            st.session_state.interviewers_list = db.get_interviewers()
-            st.session_state.jd_list = db.get_job_descriptions()
-            st.session_state.data_loaded = True
-            st.session_state.last_refresh = datetime.datetime.now()
+        db = get_db_handler()
+        st.session_state.applicants_data = db.fetch_applicants_as_df()
+        st.session_state.statuses_list = db.get_statuses()
+        st.session_state.interviewers_list = db.get_interviewers()
+        st.session_state.jd_list = db.get_job_descriptions()
+        st.session_state.data_loaded = True
+        st.session_state.last_refresh = datetime.datetime.now()
 
 def refresh_data():
     """Refresh all data from database"""
@@ -291,11 +301,12 @@ def render_sidebar(user_info):
             if st.button(icon_label, key=f"nav_{page_name}", use_container_width=True, 
                         type="primary" if st.session_state.page == page_name else "secondary"):
                 st.session_state.page = page_name
+                st.session_state.current_page = 1
                 st.rerun()
         
         st.markdown("---")
         
-        if st.button("🔄 Sync Emails & Replies", use_container_width=True, type="secondary"):
+        if st.button("🔄 Sync Emails & Replies", use_container_width=True, type="secondary", key="sidebar_sync"):
             st.session_state.show_sync_dialog = True
             st.rerun()
         
@@ -308,7 +319,7 @@ def render_sidebar(user_info):
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("🚪 Logout", use_container_width=True, type="secondary"):
+        if st.button("🚪 Logout", use_container_width=True, type="secondary", key="sidebar_logout"):
             logout()
 
 def logout():
@@ -452,24 +463,23 @@ def render_applicants():
         st.info("No applicants found. Import applicants or sync emails to get started.")
         return
     
-    col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
+    # Filters in columns
+    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
     
     with col1:
         search = st.text_input("🔍 Search", placeholder="Name, email, or domain...", label_visibility="collapsed", key="search_applicants")
     
     with col2:
-        status_filter = st.multiselect("Filter by Status", options=status_list, default=[], placeholder="All Statuses", key="filter_status")
+        status_filter = st.multiselect("Status", options=status_list, default=[], placeholder="All Statuses", key="filter_status")
     
     with col3:
         domains = applicants['domain'].unique().tolist()
-        domain_filter = st.multiselect("Filter by Domain", options=domains, default=[], placeholder="All Domains", key="filter_domain")
+        domain_filter = st.multiselect("Domain", options=domains, default=[], placeholder="All Domains", key="filter_domain")
     
     with col4:
-        view_mode = st.selectbox("View", ["Grid", "List"], label_visibility="collapsed", key="view_mode_select")
+        sort_by = st.selectbox("Sort", ["Recent", "Name"], label_visibility="collapsed", key="sort_by_select")
     
-    with col5:
-        sort_by = st.selectbox("Sort", ["Recent", "Name", "Status"], label_visibility="collapsed", key="sort_by_select")
-    
+    # Apply filters
     filtered = applicants.copy()
     
     if search:
@@ -489,66 +499,68 @@ def render_applicants():
         filtered = filtered.sort_values('created_at', ascending=False)
     elif sort_by == "Name":
         filtered = filtered.sort_values('name')
-    elif sort_by == "Status":
-        filtered = filtered.sort_values('status')
     
-    st.markdown(f"<p style='opacity: 0.7;'>Showing {len(filtered)} of {len(applicants)} applicants</p>", unsafe_allow_html=True)
+    # Pagination
+    total_items = len(filtered)
+    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
     
-    if view_mode == "Grid":
-        cols = st.columns(3)
-        for idx, (_, app) in enumerate(filtered.iterrows()):
-            with cols[idx % 3]:
-                status_color = get_status_color(app['status'])
-                
-                card_html = f"""
-                <div class="applicant-card" style="min-height: 200px;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                        <h3 style="margin: 0;" class="card-text">{html.escape(str(app['name']))}</h3>
-                        <span class="status-badge" style="background: {status_color}; color: white;">
-                            {html.escape(str(app['status']))}
-                        </span>
-                    </div>
-                    <div style="font-size: 0.9rem; margin-bottom: 0.5rem;" class="card-text">
-                        <strong>📧</strong> {html.escape(str(app['email']))}<br>
-                        <strong>📱</strong> {html.escape(str(app['phone']))}<br>
-                        <strong>💼</strong> {html.escape(str(app['domain']))}
-                    </div>
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem; opacity: 0.7;" class="card-text">
-                        Applied: {pd.to_datetime(app['created_at']).strftime('%b %d, %Y')}
-                    </div>
+    if st.session_state.current_page > total_pages and total_pages > 0:
+        st.session_state.current_page = total_pages
+    
+    start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_data = filtered.iloc[start_idx:end_idx]
+    
+    # Display info
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(f"<p style='opacity: 0.7;'>Showing {start_idx + 1}-{min(end_idx, total_items)} of {total_items} applicants</p>", unsafe_allow_html=True)
+    with col2:
+        if total_pages > 1:
+            cols = st.columns([1, 2, 1])
+            with cols[0]:
+                if st.button("◀️ Prev", key="prev_page", disabled=st.session_state.current_page == 1):
+                    st.session_state.current_page -= 1
+                    st.rerun()
+            with cols[1]:
+                st.markdown(f"<div class='pagination-info'>Page {st.session_state.current_page} of {total_pages}</div>", unsafe_allow_html=True)
+            with cols[2]:
+                if st.button("Next ▶️", key="next_page", disabled=st.session_state.current_page == total_pages):
+                    st.session_state.current_page += 1
+                    st.rerun()
+    
+    st.markdown("---")
+    
+    # Grid view with pagination
+    cols = st.columns(3)
+    for idx, (_, app) in enumerate(page_data.iterrows()):
+        with cols[idx % 3]:
+            status_color = get_status_color(app['status'])
+            
+            card_html = f"""
+            <div class="applicant-card" style="min-height: 200px;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;" class="card-text">{html.escape(str(app['name']))}</h3>
+                    <span class="status-badge" style="background: {status_color}; color: white;">
+                        {html.escape(str(app['status']))}
+                    </span>
                 </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
-                
-                if st.button("View Details", key=f"view_{app['id']}", use_container_width=True):
-                    st.session_state.selected_applicant_id = app['id']
-                    st.session_state.page = 'Applicant Detail'
-                    st.rerun()
-    else:
-        for _, app in filtered.iterrows():
-            col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
+                <div style="font-size: 0.9rem; margin-bottom: 0.5rem;" class="card-text">
+                    <strong>📧</strong> {html.escape(str(app['email']))}<br>
+                    <strong>📱</strong> {html.escape(str(app['phone']))}<br>
+                    <strong>💼</strong> {html.escape(str(app['domain']))}
+                </div>
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem; opacity: 0.7;" class="card-text">
+                    Applied: {pd.to_datetime(app['created_at']).strftime('%b %d, %Y')}
+                </div>
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
             
-            with col1:
-                st.write(f"**{app['name']}**")
-                st.caption(app['email'])
-            
-            with col2:
-                st.write(app['domain'])
-            
-            with col3:
-                status_color = get_status_color(app['status'])
-                st.markdown(f'<span class="status-badge" style="background: {status_color}; color: white;">{html.escape(str(app["status"]))}</span>', unsafe_allow_html=True)
-            
-            with col4:
-                st.caption(pd.to_datetime(app['created_at']).strftime('%b %d, %Y'))
-            
-            with col5:
-                if st.button("👁️", key=f"view_list_{app['id']}"):
-                    st.session_state.selected_applicant_id = app['id']
-                    st.session_state.page = 'Applicant Detail'
-                    st.rerun()
-            
-            st.divider()
+            if st.button("View Details", key=f"view_{app['id']}", use_container_width=True):
+                st.session_state.selected_applicant_id = app['id']
+                st.session_state.page = 'Applicant Detail'
+                st.rerun()
 
 def render_applicant_detail(db_handler, handlers):
     applicant_id = st.session_state.selected_applicant_id
@@ -619,7 +631,7 @@ def render_applicant_detail(db_handler, handlers):
         render_communications_tab(db_handler, handlers['email'], applicant_id, applicant)
     
     with tab3:
-        render_schedule_tab(db_handler, handlers['calendar'], applicant_id, applicant)
+        render_schedule_tab(db_handler, handlers, applicant_id, applicant)
     
     with tab4:
         render_update_status_tab(db_handler, applicant_id, applicant)
@@ -718,8 +730,11 @@ def render_communications_tab(db_handler, email_handler, applicant_id, applicant
             else:
                 st.warning("Email body is too short.")
 
-def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
+def render_schedule_tab(db_handler, handlers, applicant_id, applicant):
     st.subheader("📅 Schedule Interview")
+    
+    calendar_handler = handlers['calendar']
+    email_handler = handlers['email']
     
     interviewers = st.session_state.interviewers_list
     jd_list = st.session_state.jd_list
@@ -746,6 +761,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
             if slots:
                 st.success(f"Found {len(slots)} available slot(s)")
                 st.session_state[f'available_slots_{applicant_id}'] = slots
+                st.rerun()
             else:
                 st.error("No available slots found in the next 7 days")
     
@@ -806,7 +822,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
                     }]
                     
                     meet_link = google_event.get('hangoutLink', 'N/A')
-                    email_body = f"""
+                    email_body_html = f"""
                     <html>
                     <body>
                     <p>Dear {html.escape(applicant['name'])},</p>
@@ -823,7 +839,7 @@ def render_schedule_tab(db_handler, calendar_handler, applicant_id, applicant):
                     email_handler.send_email(
                         [applicant['email']],
                         f"Interview Scheduled - {event_title}",
-                        email_body,
+                        email_body_html,
                         attachments
                     )
                     
@@ -883,7 +899,7 @@ def render_communications_page(db_handler):
             applicants['email'].str.contains(search, case=False, na=False)
         ]
     
-    for idx, app in filtered.iterrows():
+    for idx, app in filtered.head(20).iterrows():
         conversations = db_handler.get_conversations(app['id'])
         
         with st.expander(f"💬 {app['name']} ({app['email']}) - {len(conversations)} message(s)"):
@@ -982,7 +998,7 @@ def render_interviews_page(db_handler):
     
     with tab2:
         if not past.empty:
-            for _, interview in past.iterrows():
+            for _, interview in past.head(20).iterrows():
                 col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
                 
                 with col1:
@@ -1136,7 +1152,7 @@ def render_export_page(db_handler, handlers):
     export_logs = db_handler.fetch_export_logs()
     
     if not export_logs.empty:
-        for _, log in export_logs.iterrows():
+        for _, log in export_logs.head(10).iterrows():
             col1, col2, col3 = st.columns([3, 2, 1])
             
             with col1:
@@ -1276,6 +1292,7 @@ def run_app():
     db_handler = get_db_handler()
     db_handler.create_tables()
     
+    # Load data once on first run
     load_all_data()
     
     handlers = get_handlers(credentials)
