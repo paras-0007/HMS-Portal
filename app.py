@@ -152,7 +152,7 @@ CUSTOM_CSS = """
     
     .pagination-info {
         text-align: center;
-        padding: 1rem;
+        padding: 0.5rem;
         opacity: 0.8;
     }
 </style>
@@ -176,7 +176,11 @@ def init_session_state():
         'jd_list': None,
         'last_refresh': None,
         'current_page': 1,
-        'filters_applied': False
+        'search_query': '',
+        'status_filter': [],
+        'domain_filter': [],
+        'sort_by': 'Recent',
+        'view_mode': 'Grid'
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -278,6 +282,16 @@ def create_metric_card(title, value, icon, gradient_class=""):
     </div>
     """
 
+def navigate_to_page(page_name):
+    """Callback to navigate to a page"""
+    st.session_state.page = page_name
+    st.session_state.current_page = 1
+
+def view_applicant_detail(applicant_id):
+    """Callback to view applicant detail"""
+    st.session_state.selected_applicant_id = applicant_id
+    st.session_state.page = 'Applicant Detail'
+
 def render_sidebar(user_info):
     with st.sidebar:
         st.markdown(f"""
@@ -298,17 +312,20 @@ def render_sidebar(user_info):
         }
         
         for icon_label, page_name in pages.items():
-            if st.button(icon_label, key=f"nav_{page_name}", use_container_width=True, 
-                        type="primary" if st.session_state.page == page_name else "secondary"):
-                st.session_state.page = page_name
-                st.session_state.current_page = 1
-                st.rerun()
+            st.button(
+                icon_label, 
+                key=f"nav_{page_name}", 
+                use_container_width=True,
+                type="primary" if st.session_state.page == page_name else "secondary",
+                on_click=navigate_to_page,
+                args=(page_name,)
+            )
         
         st.markdown("---")
         
-        if st.button("🔄 Sync Emails & Replies", use_container_width=True, type="secondary", key="sidebar_sync"):
-            st.session_state.show_sync_dialog = True
-            st.rerun()
+        if st.button("🔄 Sync Emails & Replies", use_container_width=True, type="secondary", 
+                    on_click=lambda: st.session_state.update({'show_sync_dialog': True})):
+            pass
         
         st.markdown("---")
         st.markdown(f"""
@@ -319,7 +336,7 @@ def render_sidebar(user_info):
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("🚪 Logout", use_container_width=True, type="secondary", key="sidebar_logout"):
+        if st.button("🚪 Logout", use_container_width=True, type="secondary"):
             logout()
 
 def logout():
@@ -349,11 +366,11 @@ def show_sync_dialog(processing_engine):
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ Start Sync", use_container_width=True, type="primary", key="start_sync_btn"):
+            if st.button("▶️ Start Sync", use_container_width=True, type="primary"):
                 st.session_state.sync_in_progress = True
                 st.rerun()
         with col2:
-            if st.button("❌ Cancel", use_container_width=True, key="cancel_sync_btn"):
+            if st.button("❌ Cancel", use_container_width=True):
                 st.session_state.show_sync_dialog = False
                 st.rerun()
     else:
@@ -377,7 +394,7 @@ def show_sync_dialog(processing_engine):
         
         refresh_data()
         
-        if st.button("✔️ Done", use_container_width=True, type="primary", key="done_sync_btn"):
+        if st.button("✔️ Done", use_container_width=True, type="primary"):
             st.session_state.show_sync_dialog = False
             st.session_state.sync_in_progress = False
             st.rerun()
@@ -423,7 +440,7 @@ def render_dashboard():
         fig.update_traces(textposition='inside', textinfo='percent+label')
         fig.update_layout(height=350, margin=dict(t=0, b=0, l=0, r=0), showlegend=True, 
                         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig, use_container_width=True, key="status_pie")
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         st.markdown("### 🎯 Applications by Domain")
@@ -434,7 +451,7 @@ def render_dashboard():
                     color='Count', color_continuous_scale='Viridis')
         fig.update_layout(height=350, margin=dict(t=0, b=0, l=20, r=0), showlegend=False,
                         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig, use_container_width=True, key="domain_bar")
+        st.plotly_chart(fig, use_container_width=True)
     
     st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
     
@@ -453,114 +470,193 @@ def render_dashboard():
         </div>
         """, unsafe_allow_html=True)
 
-def render_applicants():
-    st.markdown('<h1 style="margin-bottom: 1rem;">👥 Applicants</h1>', unsafe_allow_html=True)
+@st.fragment
+def render_applicants_list():
+    """Fragment for applicants list - only this reruns on filter changes"""
     
     applicants = st.session_state.applicants_data
-    status_list = st.session_state.statuses_list
     
     if applicants is None or applicants.empty:
         st.info("No applicants found. Import applicants or sync emails to get started.")
         return
     
-    # Filters in columns
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
-    
-    with col1:
-        search = st.text_input("🔍 Search", placeholder="Name, email, or domain...", label_visibility="collapsed", key="search_applicants")
-    
-    with col2:
-        status_filter = st.multiselect("Status", options=status_list, default=[], placeholder="All Statuses", key="filter_status")
-    
-    with col3:
-        domains = applicants['domain'].unique().tolist()
-        domain_filter = st.multiselect("Domain", options=domains, default=[], placeholder="All Domains", key="filter_domain")
-    
-    with col4:
-        sort_by = st.selectbox("Sort", ["Recent", "Name"], label_visibility="collapsed", key="sort_by_select")
-    
     # Apply filters
     filtered = applicants.copy()
     
-    if search:
+    if st.session_state.search_query:
         filtered = filtered[
-            filtered['name'].str.contains(search, case=False, na=False) |
-            filtered['email'].str.contains(search, case=False, na=False) |
-            filtered['domain'].str.contains(search, case=False, na=False)
+            filtered['name'].str.contains(st.session_state.search_query, case=False, na=False) |
+            filtered['email'].str.contains(st.session_state.search_query, case=False, na=False) |
+            filtered['domain'].str.contains(st.session_state.search_query, case=False, na=False)
         ]
     
-    if status_filter:
-        filtered = filtered[filtered['status'].isin(status_filter)]
+    if st.session_state.status_filter:
+        filtered = filtered[filtered['status'].isin(st.session_state.status_filter)]
     
-    if domain_filter:
-        filtered = filtered[filtered['domain'].isin(domain_filter)]
+    if st.session_state.domain_filter:
+        filtered = filtered[filtered['domain'].isin(st.session_state.domain_filter)]
     
-    if sort_by == "Recent":
+    # Sort
+    if st.session_state.sort_by == "Recent":
         filtered = filtered.sort_values('created_at', ascending=False)
-    elif sort_by == "Name":
+    elif st.session_state.sort_by == "Name":
         filtered = filtered.sort_values('name')
+    elif st.session_state.sort_by == "Status":
+        filtered = filtered.sort_values('status')
     
     # Pagination
     total_items = len(filtered)
-    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    total_pages = max(1, (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
     
-    if st.session_state.current_page > total_pages and total_pages > 0:
+    if st.session_state.current_page > total_pages:
         st.session_state.current_page = total_pages
     
     start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
-    end_idx = start_idx + ITEMS_PER_PAGE
+    end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
     page_data = filtered.iloc[start_idx:end_idx]
     
-    # Display info
+    # Display info and pagination
     col1, col2 = st.columns([2, 1])
     with col1:
-        st.markdown(f"<p style='opacity: 0.7;'>Showing {start_idx + 1}-{min(end_idx, total_items)} of {total_items} applicants</p>", unsafe_allow_html=True)
+        if total_items > 0:
+            st.markdown(f"<p style='opacity: 0.7;'>Showing {start_idx + 1}-{end_idx} of {total_items} applicants</p>", unsafe_allow_html=True)
+        else:
+            st.info("No applicants match your filters")
+            return
+    
     with col2:
         if total_pages > 1:
             cols = st.columns([1, 2, 1])
             with cols[0]:
-                if st.button("◀️ Prev", key="prev_page", disabled=st.session_state.current_page == 1):
+                if st.button("◀️ Prev", disabled=st.session_state.current_page == 1):
                     st.session_state.current_page -= 1
-                    st.rerun()
+                    st.rerun(scope="fragment")
             with cols[1]:
                 st.markdown(f"<div class='pagination-info'>Page {st.session_state.current_page} of {total_pages}</div>", unsafe_allow_html=True)
             with cols[2]:
-                if st.button("Next ▶️", key="next_page", disabled=st.session_state.current_page == total_pages):
+                if st.button("Next ▶️", disabled=st.session_state.current_page == total_pages):
                     st.session_state.current_page += 1
-                    st.rerun()
+                    st.rerun(scope="fragment")
     
     st.markdown("---")
     
-    # Grid view with pagination
-    cols = st.columns(3)
-    for idx, (_, app) in enumerate(page_data.iterrows()):
-        with cols[idx % 3]:
-            status_color = get_status_color(app['status'])
+    # Render based on view mode
+    if st.session_state.view_mode == "Grid":
+        cols = st.columns(3)
+        for idx, (_, app) in enumerate(page_data.iterrows()):
+            with cols[idx % 3]:
+                status_color = get_status_color(app['status'])
+                
+                card_html = f"""
+                <div class="applicant-card" style="min-height: 200px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                        <h3 style="margin: 0;" class="card-text">{html.escape(str(app['name']))}</h3>
+                        <span class="status-badge" style="background: {status_color}; color: white;">
+                            {html.escape(str(app['status']))}
+                        </span>
+                    </div>
+                    <div style="font-size: 0.9rem; margin-bottom: 0.5rem;" class="card-text">
+                        <strong>📧</strong> {html.escape(str(app['email']))}<br>
+                        <strong>📱</strong> {html.escape(str(app['phone']))}<br>
+                        <strong>💼</strong> {html.escape(str(app['domain']))}
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem; opacity: 0.7;" class="card-text">
+                        Applied: {pd.to_datetime(app['created_at']).strftime('%b %d, %Y')}
+                    </div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+                
+                if st.button("View Details", key=f"view_{app['id']}", use_container_width=True):
+                    view_applicant_detail(app['id'])
+                    st.rerun()
+    
+    else:  # List view
+        for _, app in page_data.iterrows():
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
             
-            card_html = f"""
-            <div class="applicant-card" style="min-height: 200px;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                    <h3 style="margin: 0;" class="card-text">{html.escape(str(app['name']))}</h3>
-                    <span class="status-badge" style="background: {status_color}; color: white;">
-                        {html.escape(str(app['status']))}
-                    </span>
-                </div>
-                <div style="font-size: 0.9rem; margin-bottom: 0.5rem;" class="card-text">
-                    <strong>📧</strong> {html.escape(str(app['email']))}<br>
-                    <strong>📱</strong> {html.escape(str(app['phone']))}<br>
-                    <strong>💼</strong> {html.escape(str(app['domain']))}
-                </div>
-                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem; opacity: 0.7;" class="card-text">
-                    Applied: {pd.to_datetime(app['created_at']).strftime('%b %d, %Y')}
-                </div>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
+            with col1:
+                st.write(f"**{app['name']}**")
+                st.caption(app['email'])
             
-            if st.button("View Details", key=f"view_{app['id']}", use_container_width=True):
-                st.session_state.selected_applicant_id = app['id']
-                st.session_state.page = 'Applicant Detail'
-                st.rerun()
+            with col2:
+                st.write(app['domain'])
+            
+            with col3:
+                status_color = get_status_color(app['status'])
+                st.markdown(f'<span class="status-badge" style="background: {status_color}; color: white;">{html.escape(str(app["status"]))}</span>', unsafe_allow_html=True)
+            
+            with col4:
+                st.caption(pd.to_datetime(app['created_at']).strftime('%b %d, %Y'))
+            
+            with col5:
+                if st.button("👁️", key=f"view_list_{app['id']}"):
+                    view_applicant_detail(app['id'])
+                    st.rerun()
+            
+            st.divider()
+
+def render_applicants():
+    st.markdown('<h1 style="margin-bottom: 1rem;">👥 Applicants</h1>', unsafe_allow_html=True)
+    
+    status_list = st.session_state.statuses_list
+    applicants = st.session_state.applicants_data
+    
+    if applicants is None or applicants.empty:
+        st.info("No applicants found. Import applicants or sync emails to get started.")
+        return
+    
+    # Filters - outside fragment so they don't cause fragment reruns
+    col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
+    
+    with col1:
+        search = st.text_input("🔍 Search", placeholder="Name, email, or domain...", 
+                              label_visibility="collapsed", 
+                              value=st.session_state.search_query,
+                              key="search_input")
+        if search != st.session_state.search_query:
+            st.session_state.search_query = search
+            st.session_state.current_page = 1
+    
+    with col2:
+        status_filter = st.multiselect("Status", options=status_list, 
+                                      default=st.session_state.status_filter,
+                                      placeholder="All Statuses", 
+                                      key="status_filter_input")
+        if status_filter != st.session_state.status_filter:
+            st.session_state.status_filter = status_filter
+            st.session_state.current_page = 1
+    
+    with col3:
+        domains = applicants['domain'].unique().tolist()
+        domain_filter = st.multiselect("Domain", options=domains, 
+                                      default=st.session_state.domain_filter,
+                                      placeholder="All Domains", 
+                                      key="domain_filter_input")
+        if domain_filter != st.session_state.domain_filter:
+            st.session_state.domain_filter = domain_filter
+            st.session_state.current_page = 1
+    
+    with col4:
+        view_mode = st.selectbox("View", ["Grid", "List"], 
+                                label_visibility="collapsed",
+                                index=0 if st.session_state.view_mode == "Grid" else 1,
+                                key="view_mode_input")
+        if view_mode != st.session_state.view_mode:
+            st.session_state.view_mode = view_mode
+    
+    with col5:
+        sort_by = st.selectbox("Sort", ["Recent", "Name", "Status"], 
+                              label_visibility="collapsed",
+                              index=["Recent", "Name", "Status"].index(st.session_state.sort_by),
+                              key="sort_input")
+        if sort_by != st.session_state.sort_by:
+            st.session_state.sort_by = sort_by
+    
+    st.markdown("---")
+    
+    # Render applicants list as fragment
+    render_applicants_list()
 
 def render_applicant_detail(db_handler, handlers):
     applicant_id = st.session_state.selected_applicant_id
@@ -585,9 +681,7 @@ def render_applicant_detail(db_handler, handlers):
         st.caption(f"{applicant['domain']} • Applied on {pd.to_datetime(applicant['created_at']).strftime('%b %d, %Y')}")
     
     with col2:
-        if st.button("← Back to Applicants", type="secondary", key="back_to_applicants"):
-            st.session_state.page = 'Applicants'
-            st.rerun()
+        st.button("← Back to Applicants", type="secondary", on_click=navigate_to_page, args=('Applicants',))
     
     st.markdown("---")
     
@@ -638,22 +732,22 @@ def render_applicant_detail(db_handler, handlers):
     
     with tab5:
         st.warning("⚠️ Danger Zone")
-        if st.button("🗑️ Delete Applicant", type="secondary", key="delete_applicant_btn"):
+        if st.button("🗑️ Delete Applicant", type="secondary"):
             st.session_state.confirm_delete = True
         
         if st.session_state.confirm_delete:
             st.error("Are you sure? This action cannot be undone.")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Yes, Delete", type="primary", key="confirm_delete_btn"):
+                if st.button("✅ Yes, Delete", type="primary"):
                     if db_handler.delete_applicants([applicant_id]):
                         st.success("Applicant deleted successfully")
                         st.session_state.confirm_delete = False
-                        st.session_state.page = 'Applicants'
                         refresh_data()
+                        navigate_to_page('Applicants')
                         st.rerun()
             with col2:
-                if st.button("❌ Cancel", key="cancel_delete_btn"):
+                if st.button("❌ Cancel"):
                     st.session_state.confirm_delete = False
                     st.rerun()
 
@@ -744,17 +838,17 @@ def render_schedule_tab(db_handler, handlers, applicant_id, applicant):
         return
     
     interviewer_options = {f"{row['name']} ({row['email']})": row for _, row in interviewers.iterrows()}
-    selected_interviewer_key = st.selectbox("Select Interviewer", options=list(interviewer_options.keys()), key=f"select_interviewer_{applicant_id}")
+    selected_interviewer_key = st.selectbox("Select Interviewer", options=list(interviewer_options.keys()))
     selected_interviewer = interviewer_options[selected_interviewer_key]
     
-    duration = st.slider("Interview Duration (minutes)", 30, 120, 60, 15, key=f"duration_{applicant_id}")
+    duration = st.slider("Interview Duration (minutes)", 30, 120, 60, 15)
     
-    event_title = st.text_input("Event Title", value=f"Interview with {applicant['name']}", key=f"event_title_{applicant_id}")
+    event_title = st.text_input("Event Title", value=f"Interview with {applicant['name']}")
     
     jd_options = ["None"] + ([f"{row['name']}" for _, row in jd_list.iterrows()] if jd_list is not None and not jd_list.empty else [])
-    selected_jd_name = st.selectbox("Attach Job Description (Optional)", options=jd_options, key=f"select_jd_{applicant_id}")
+    selected_jd_name = st.selectbox("Attach Job Description (Optional)", options=jd_options)
     
-    if st.button("🔍 Find Available Slots", type="primary", key=f"find_slots_{applicant_id}"):
+    if st.button("🔍 Find Available Slots", type="primary"):
         with st.spinner("Searching for available slots..."):
             slots = calendar_handler.find_available_slots(selected_interviewer['email'], duration)
             
@@ -769,10 +863,10 @@ def render_schedule_tab(db_handler, handlers, applicant_id, applicant):
         slots = st.session_state[f'available_slots_{applicant_id}']
         
         slot_options = {slot.strftime('%A, %B %d, %Y at %I:%M %p'): slot for slot in slots[:20]}
-        selected_slot_str = st.selectbox("Select Time Slot", options=list(slot_options.keys()), key=f"select_slot_{applicant_id}")
+        selected_slot_str = st.selectbox("Select Time Slot", options=list(slot_options.keys()))
         selected_slot = slot_options[selected_slot_str]
         
-        if st.button("✅ Confirm & Schedule", type="primary", key=f"confirm_schedule_{applicant_id}"):
+        if st.button("✅ Confirm & Schedule", type="primary"):
             with st.spinner("Creating calendar event..."):
                 end_time = selected_slot + datetime.timedelta(minutes=duration)
                 
@@ -890,7 +984,7 @@ def render_communications_page(db_handler):
         st.info("No applicants with communications yet.")
         return
     
-    search = st.text_input("🔍 Search applicant", placeholder="Name or email...", key="search_communications")
+    search = st.text_input("🔍 Search applicant", placeholder="Name or email...")
     
     filtered = applicants
     if search:
@@ -927,10 +1021,7 @@ def render_communications_page(db_handler):
             else:
                 st.info("No communications for this applicant")
             
-            if st.button(f"View Full Profile", key=f"view_profile_{app['id']}"):
-                st.session_state.selected_applicant_id = app['id']
-                st.session_state.page = 'Applicant Detail'
-                st.rerun()
+            st.button("View Full Profile", key=f"view_profile_{app['id']}", on_click=view_applicant_detail, args=(app['id'],))
 
 def render_interviews_page(db_handler):
     st.markdown('<h1 style="margin-bottom: 1rem;">📅 Interviews</h1>', unsafe_allow_html=True)
@@ -987,10 +1078,8 @@ def render_interviews_page(db_handler):
                     st.caption(start_time.strftime('%I:%M %p'))
                 
                 with col4:
-                    if st.button("👁️", key=f"view_interview_{interview['interview_id']}"):
-                        st.session_state.selected_applicant_id = interview['applicant_id']
-                        st.session_state.page = 'Applicant Detail'
-                        st.rerun()
+                    st.button("👁️", key=f"view_interview_{interview['interview_id']}", 
+                             on_click=view_applicant_detail, args=(interview['applicant_id'],))
                 
                 st.divider()
         else:
@@ -1014,10 +1103,8 @@ def render_interviews_page(db_handler):
                     st.caption(start_time.strftime('%I:%M %p'))
                 
                 with col4:
-                    if st.button("👁️", key=f"view_past_interview_{interview['interview_id']}"):
-                        st.session_state.selected_applicant_id = interview['applicant_id']
-                        st.session_state.page = 'Applicant Detail'
-                        st.rerun()
+                    st.button("👁️", key=f"view_past_interview_{interview['interview_id']}", 
+                             on_click=view_applicant_detail, args=(interview['applicant_id'],))
                 
                 st.divider()
         else:
@@ -1030,9 +1117,9 @@ def render_import_page(db_handler, handlers):
     
     with tab1:
         st.markdown("### Upload CSV or Excel File")
-        uploaded_file = st.file_uploader("Choose file", type=['csv', 'xlsx', 'xls'], key="file_upload_import")
+        uploaded_file = st.file_uploader("Choose file", type=['csv', 'xlsx', 'xls'])
         
-        if uploaded_file and st.button("📥 Import from File", type="primary", key="import_file_btn"):
+        if uploaded_file and st.button("📥 Import from File", type="primary"):
             with st.spinner("Importing..."):
                 message, count = handlers['importer'].import_from_local_file(uploaded_file)
                 if count > 0:
@@ -1044,9 +1131,9 @@ def render_import_page(db_handler, handlers):
     
     with tab2:
         st.markdown("### Import from Google Sheet")
-        sheet_url = st.text_input("Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...", key="g_sheet_url_import")
+        sheet_url = st.text_input("Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
         
-        if sheet_url and st.button("📥 Import from Sheet", type="primary", key="import_sheet_btn"):
+        if sheet_url and st.button("📥 Import from Sheet", type="primary"):
             if sid := re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url):
                 with st.spinner("Reading & Importing..."):
                     data = handlers['sheets'].read_sheet_data(sid.group(1))
@@ -1062,9 +1149,9 @@ def render_import_page(db_handler, handlers):
     
     with tab3:
         st.markdown("### Import Single Resume from URL")
-        resume_url = st.text_input("Resume URL (Google Drive)", placeholder="https://drive.google.com/file/d/...", key="resume_url_import")
+        resume_url = st.text_input("Resume URL (Google Drive)", placeholder="https://drive.google.com/file/d/...")
         
-        if resume_url and st.button("📥 Import Resume", type="primary", key="import_resume_url_btn"):
+        if resume_url and st.button("📥 Import Resume", type="primary"):
             with st.spinner("Downloading and processing..."):
                 result = handlers['importer'].import_from_resume(resume_url)
                 if result:
@@ -1076,9 +1163,9 @@ def render_import_page(db_handler, handlers):
     
     with tab4:
         st.markdown("### Upload Resume File")
-        resume_file = st.file_uploader("Choose resume", type=['pdf', 'docx'], key="resume_file_import")
+        resume_file = st.file_uploader("Choose resume", type=['pdf', 'docx'])
         
-        if resume_file and st.button("📥 Import Resume File", type="primary", key="import_resume_file_btn"):
+        if resume_file and st.button("📥 Import Resume File", type="primary"):
             with st.spinner("Processing..."):
                 result = handlers['importer'].import_from_local_resume(resume_file)
                 if result:
@@ -1103,11 +1190,11 @@ def render_export_page(db_handler, handlers):
     col1, col2 = st.columns(2)
     
     with col1:
-        status_filter = st.multiselect("Filter by Status", options=status_list, default=[], key="export_status_filter")
+        status_filter = st.multiselect("Filter by Status", options=status_list, default=[])
     
     with col2:
         domains = applicants['domain'].unique().tolist()
-        domain_filter = st.multiselect("Filter by Domain", options=domains, default=[], key="export_domain_filter")
+        domain_filter = st.multiselect("Filter by Domain", options=domains, default=[])
     
     filtered = applicants.copy()
     
@@ -1119,7 +1206,7 @@ def render_export_page(db_handler, handlers):
     
     st.markdown(f"**{len(filtered)} applicant(s) will be exported**")
     
-    if st.button("📤 Export to Google Sheet", type="primary", disabled=filtered.empty, key="export_sheet_btn"):
+    if st.button("📤 Export to Google Sheet", type="primary", disabled=filtered.empty):
         with st.spinner("Creating and populating Google Sheet..."):
             columns = ['Name', 'Email', 'Phone', 'Education', 'JobHistory', 'Resume', 'Role', 'Status', 'Feedback']
             
@@ -1312,7 +1399,7 @@ def run_app():
         if st.session_state.selected_applicant_id:
             render_applicant_detail(db_handler, handlers)
         else:
-            st.session_state.page = 'Applicants'
+            navigate_to_page('Applicants')
             st.rerun()
     elif page == 'Communications':
         render_communications_page(db_handler)
